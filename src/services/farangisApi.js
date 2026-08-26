@@ -1,6 +1,7 @@
 import * as SecureStore from 'expo-secure-store';
 import * as Notifications from 'expo-notifications';
 import { Linking } from 'react-native';
+import { enqueueAction, flushActionQueue } from './offlineQueue';
 
 const KEY_BASE_URL = 'farangis_core_url';
 const KEY_DEVICE_TOKEN = 'farangis_device_token';
@@ -65,8 +66,19 @@ async function runClientAction(result) {
   return result;
 }
 
+async function submitActionRaw(action) {
+  const response = await coreFetch('/api/v1/actions', {
+    method: 'POST',
+    body: JSON.stringify(action),
+  });
+  if (response?.result?.clientAction) response.result = await runClientAction(response.result);
+  return response;
+}
+
 export async function healthCheck() {
-  return coreFetch('/api/v1/health', { method: 'GET', headers: { 'Content-Type': 'application/json' } });
+  const result = await coreFetch('/api/v1/health', { method: 'GET', headers: { 'Content-Type': 'application/json' } });
+  flushActionQueue((action) => submitActionRaw(action)).catch(() => {});
+  return result;
 }
 
 export async function sendChat({ text, context = [], mode = 'assistant' }) {
@@ -76,13 +88,22 @@ export async function sendChat({ text, context = [], mode = 'assistant' }) {
   });
 }
 
-export async function submitAction(action) {
-  const response = await coreFetch('/api/v1/actions', {
-    method: 'POST',
-    body: JSON.stringify(action),
-  });
-  if (response?.result?.clientAction) response.result = await runClientAction(response.result);
-  return response;
+export async function submitAction(action, { allowQueue = true } = {}) {
+  try {
+    return await submitActionRaw(action);
+  } catch (error) {
+    const safeToQueue = allowQueue && action?.confirmed === true && action?.tool;
+    if (!safeToQueue) throw error;
+    await enqueueAction(action);
+    return {
+      ok: true,
+      result: {
+        queued: true,
+        offline: true,
+        message: 'اتصال برقرار نبود؛ فرمان برای ارسال مجدد در صف امن گوشی ذخیره شد.',
+      },
+    };
+  }
 }
 
 export async function transcribeViaCore({ uri }) {
@@ -90,6 +111,8 @@ export async function transcribeViaCore({ uri }) {
   if (!cfg.baseUrl) throw new Error('آدرس Farangis Core هنوز تنظیم نشده.');
   const form = new FormData();
   form.append('file', { uri, name: 'voice.m4a', type: 'audio/m4a' });
+  form.append('model', 'whisper-large-v3-turbo');
+  form.append('language', 'fa');
   const response = await fetch(`${cfg.baseUrl}/api/v1/voice/stt`, {
     method: 'POST',
     headers: {
