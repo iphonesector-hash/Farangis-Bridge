@@ -1,0 +1,23 @@
+name: Farangis v2 Predeploy QA
+
+on:
+  push:
+    branches: ['farangis-v2']
+  pull_request:
+    branches: ['main']
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Verify server syntax
+        run: npm run verify:server
+      - name: Verify Expo iOS bundle
+        run: npm run verify:expo
