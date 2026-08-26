@@ -1,10 +1,12 @@
 import * as FileSystem from 'expo-file-system/legacy';
 import * as SecureStore from 'expo-secure-store';
 import * as Speech from 'expo-speech';
+import { Alert } from 'react-native';
 import { Audio } from 'expo-av';
 import { buildTtsDownloadUrl } from './farangisApi';
 
 let activeSound = null;
+let keyPromptInFlight = null;
 
 const LEGACY_ELEVENLABS_KEY = 'farangis_tts_test_elevenlabs_key';
 const ELEVENLABS_KEY = 'farangis_elevenlabs_key';
@@ -66,19 +68,47 @@ async function playFile(uri) {
   });
 }
 
-async function getLocalElevenLabsKey() {
+function promptForElevenLabsKey() {
+  if (keyPromptInFlight) return keyPromptInFlight;
+  keyPromptInFlight = new Promise((resolve) => {
+    if (typeof Alert.prompt !== 'function') {
+      resolve('');
+      return;
+    }
+    Alert.prompt(
+      'فعال‌سازی صدای فارسی فرنگیس',
+      'کلید ElevenLabs را یک‌بار وارد کن. فقط داخل SecureStore آیفون ذخیره می‌شود و داخل GitHub یا متن گفتگو قرار نمی‌گیرد.',
+      [
+        { text: 'فعلاً نه', style: 'cancel', onPress: () => resolve('') },
+        { text: 'ذخیره', onPress: (value) => resolve(String(value || '').trim()) },
+      ],
+      'secure-text'
+    );
+  }).finally(() => { keyPromptInFlight = null; });
+  return keyPromptInFlight;
+}
+
+async function getLocalElevenLabsKey({ allowPrompt = true } = {}) {
   const current = await SecureStore.getItemAsync(ELEVENLABS_KEY).catch(() => null);
   if (current) return current;
+
   const legacy = await SecureStore.getItemAsync(LEGACY_ELEVENLABS_KEY).catch(() => null);
   if (legacy) {
     await SecureStore.setItemAsync(ELEVENLABS_KEY, legacy).catch(() => {});
     return legacy;
   }
+
+  if (!allowPrompt) return '';
+  const entered = await promptForElevenLabsKey();
+  if (entered) {
+    await SecureStore.setItemAsync(ELEVENLABS_KEY, entered);
+    return entered;
+  }
   return '';
 }
 
 async function speakDirectElevenLabs(text) {
-  const apiKey = await getLocalElevenLabsKey();
+  const apiKey = await getLocalElevenLabsKey({ allowPrompt: true });
   if (!apiKey) throw new Error('LOCAL_ELEVENLABS_KEY_NOT_FOUND');
 
   const response = await fetch(
