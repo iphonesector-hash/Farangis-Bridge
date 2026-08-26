@@ -1,6 +1,6 @@
 {
   "name": "farangis-bridge",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "main": "node_modules/expo/AppEntry.js",
   "dependencies": {
     "expo": "~54.0.0",
@@ -16,7 +16,10 @@
     "expo-speech": "~14.0.0",
     "expo-calendar": "~15.0.8",
     "expo-notifications": "~0.32.17",
-    "expo-device": "~8.0.10"
+    "expo-device": "~8.0.10",
+    "expo-document-picker": "~14.0.8",
+    "expo-file-system": "~19.0.24",
+    "expo-sharing": "~14.0.8"
   },
   "private": true
 }
