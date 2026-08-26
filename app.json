@@ -1,0 +1,19 @@
+{
+  "expo": {
+    "name": "Farangis Bridge",
+    "slug": "farangis-bridge",
+    "version": "1.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "ios": {
+      "supportsTablet": false,
+      "infoPlist": {
+        "NSContactsUsageDescription": "Farangis uses contacts only for commands you request.",
+        "NSPhotoLibraryUsageDescription": "Farangis uses your photo library only for commands you request.",
+        "NSCameraUsageDescription": "Farangis uses the camera only when you request a camera action.",
+        "NSMicrophoneUsageDescription": "Farangis uses the microphone only when you request a voice action.",
+        "NSLocationWhenInUseUsageDescription": "Farangis uses your location only for location-based commands you request."
+      }
+    }
+  }
+}
