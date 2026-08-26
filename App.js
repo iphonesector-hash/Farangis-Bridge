@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Linking,
@@ -25,6 +25,7 @@ import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import { Audio } from 'expo-av';
 import { DEFAULT_AI_CONFIG, answerWithInternet, planWithAI } from './src/ai';
+import { transcribeAudio } from './src/voice';
 
 const normalizeDigits = (value = '') => String(value)
   .replace(/[۰-۹]/g, (d) => '۰۱۲۳۴۵۶۷۸۹'.indexOf(d))
@@ -49,15 +50,18 @@ const looksLive = (text) => {
 
 export default function App() {
   const [status, setStatus] = useState({});
-  const [result, setResult] = useState('فرنگیس آماده است. هر چیزی خواستی بگو.');
+  const [result, setResult] = useState('فرنگیس آماده است. دکمه میکروفن را بزن و حرف بزن.');
   const [command, setCommand] = useState('');
   const [busy, setBusy] = useState(false);
+  const [recording, setRecording] = useState(false);
+  const [voiceBusy, setVoiceBusy] = useState(false);
   const [speakAnswers, setSpeakAnswers] = useState(true);
   const [showAISettings, setShowAISettings] = useState(false);
   const [aiKey, setAiKey] = useState('');
   const [aiBaseUrl, setAiBaseUrl] = useState(DEFAULT_AI_CONFIG.baseUrl);
   const [aiModel, setAiModel] = useState(DEFAULT_AI_CONFIG.model);
   const [lastFile, setLastFile] = useState(null);
+  const recordingRef = useRef(null);
   const [, requestCameraPermission] = useCameraPermissions();
 
   useEffect(() => {
@@ -77,8 +81,6 @@ export default function App() {
 
   const quickCommands = useMemo(() => [
     'قیمت دلار امروز چنده؟',
-    'فایل‌هام رو باز کن',
-    'برنامه تلگرام رو باز کن',
     'لوکیشن فعلیم رو روی نقشه باز کن',
     'شماره مستانه رو پیدا کن',
     'چه کسایی تاریخ تولد دارن؟',
@@ -165,7 +167,6 @@ export default function App() {
     if (!phone) return `شماره‌ای برای «${query}» پیدا نکردم.`;
     await Linking.openURL(`sms:${phone.replace(/\s/g,'')}`); return `💬 پیام برای ${m[0]?.name || query} باز شد.`;
   };
-
   const toolPhotos = async () => {
     if (!(await ensurePhotos())) return 'دسترسی عکس‌ها فعال نیست.';
     const a = await MediaLibrary.getAssetsAsync({ first: 1 }); return `🖼 تعداد عکس و ویدیوی قابل مشاهده: ${a.totalCount}`;
@@ -303,6 +304,62 @@ export default function App() {
     finally { setBusy(false); }
   };
 
+  const startVoice = async () => {
+    if (!aiKey.trim()) {
+      await say('برای فرمان صوتی، اول Groq API Key را در تنظیمات AI ذخیره کن.');
+      return;
+    }
+    try {
+      await Speech.stop();
+      const p = await Audio.requestPermissionsAsync();
+      if (p.status !== 'granted') {
+        setAccess('Microphone','denied');
+        await say('دسترسی میکروفن داده نشد.');
+        return;
+      }
+      setAccess('Microphone','granted');
+      await Audio.setAudioModeAsync({ allowsRecordingIOS: true, playsInSilentModeIOS: true });
+      const created = await Audio.Recording.createAsync(Audio.RecordingOptionsPresets.HIGH_QUALITY);
+      recordingRef.current = created.recording;
+      setRecording(true);
+      setResult('🎙 دارم گوش می‌دم... حرف بزن، بعد دوباره میکروفن رو بزن.');
+    } catch (error) {
+      recordingRef.current = null;
+      setRecording(false);
+      await say(`❌ شروع ضبط نشد:\n${String(error)}`);
+    }
+  };
+
+  const stopVoice = async () => {
+    const active = recordingRef.current;
+    if (!active) return;
+    setVoiceBusy(true);
+    setRecording(false);
+    setResult('🧠 دارم صدات رو می‌فهمم...');
+    try {
+      await active.stopAndUnloadAsync();
+      const uri = active.getURI();
+      recordingRef.current = null;
+      await Audio.setAudioModeAsync({ allowsRecordingIOS: false, playsInSilentModeIOS: true });
+      const transcript = await transcribeAudio({ uri, apiKey: aiKey.trim() });
+      setCommand(transcript);
+      setResult(`🎤 شنیدم: «${transcript}»`);
+      await runCommand(transcript);
+    } catch (error) {
+      recordingRef.current = null;
+      await Audio.setAudioModeAsync({ allowsRecordingIOS: false, playsInSilentModeIOS: true }).catch(()=>{});
+      await say(`❌ تبدیل صدا به متن انجام نشد:\n${String(error)}`);
+    } finally {
+      setVoiceBusy(false);
+    }
+  };
+
+  const toggleVoice = async () => {
+    if (voiceBusy || busy) return;
+    if (recording) await stopVoice();
+    else await startVoice();
+  };
+
   const permissionItems = [
     ['Contacts','👥 Contacts',async()=>say(await toolContactsSummary())], ['Photos','🖼 Photos',async()=>say(await toolPhotos())],
     ['Location','📍 Location',async()=>say(await toolLocation())], ['Files','📁 Files',async()=>say(await toolPickFile())],
@@ -313,15 +370,25 @@ export default function App() {
 
   return (
     <ScrollView style={styles.page} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-      <Text style={styles.logo}>🧠</Text><Text style={styles.title}>فرنگیس</Text><Text style={styles.subtitle}>Farangis Personal Bridge 1.5</Text>
+      <Text style={styles.logo}>🧠</Text><Text style={styles.title}>فرنگیس</Text><Text style={styles.subtitle}>Farangis Personal Bridge 1.6 Voice</Text>
+
+      <View style={styles.voiceCard}>
+        <Text style={styles.voiceHeroTitle}>{recording ? '🎙 دارم گوش می‌دم...' : voiceBusy ? '🧠 دارم می‌فهمم...' : '🎤 با فرنگیس حرف بزن'}</Text>
+        <Text style={styles.voiceHeroHint}>{recording ? 'حرفت که تموم شد دوباره دکمه رو بزن.' : 'یک بار بزن، حرف بزن، دوباره بزن؛ بقیه کار خودکاره.'}</Text>
+        <Pressable style={[styles.micButton, recording && styles.micButtonRecording, (voiceBusy||busy) && styles.disabledButton]} disabled={voiceBusy||busy} onPress={toggleVoice}>
+          <Text style={styles.micIcon}>{recording ? '⏹' : '🎙'}</Text>
+          <Text style={styles.micText}>{recording ? 'پایان و اجرا' : voiceBusy ? 'در حال پردازش...' : 'شروع صحبت'}</Text>
+        </Pressable>
+      </View>
+
       <View style={styles.commandCard}>
-        <Text style={styles.sectionTitle}>فرمان</Text>
+        <Text style={styles.sectionTitle}>فرمان متنی</Text>
         <TextInput value={command} onChangeText={setCommand} placeholder="مثلاً: قیمت دلار امروز چنده؟" placeholderTextColor="#687083" style={styles.input} multiline textAlign="right" />
         <View style={styles.row}>
           <Pressable style={[styles.primaryButton,busy&&styles.disabledButton]} disabled={busy} onPress={()=>runCommand()}><Text style={styles.primaryButtonText}>{busy?'در حال اجرا...':'اجرا کن'}</Text></Pressable>
           <Pressable style={styles.clearButton} onPress={()=>{setCommand('');setResult('فرنگیس آماده است.');}}><Text style={styles.clearButtonText}>پاک کن</Text></Pressable>
         </View>
-        <View style={styles.voiceRow}><View style={{flex:1}}><Text style={styles.voiceTitle}>خواندن جواب با صدا</Text><Text style={styles.voiceHint}>برای گفتن فرمان از دیکته کیبورد آیفون استفاده کن.</Text></View><Switch value={speakAnswers} onValueChange={setSpeakAnswers}/></View>
+        <View style={styles.voiceRow}><View style={{flex:1}}><Text style={styles.voiceTitle}>پاسخ صوتی فرنگیس</Text><Text style={styles.voiceHint}>بعد از فهم فرمان، جواب را با صدای فارسی می‌خواند.</Text></View><Switch value={speakAnswers} onValueChange={setSpeakAnswers}/></View>
         <View style={styles.quickWrap}>{quickCommands.map((x)=><Pressable key={x} style={styles.quickButton} onPress={()=>runCommand(x)}><Text style={styles.quickText}>{x}</Text></Pressable>)}</View>
       </View>
 
@@ -331,7 +398,7 @@ export default function App() {
 
       <Pressable style={styles.aiHeader} onPress={()=>setShowAISettings(!showAISettings)}><Text style={styles.sectionTitle}>🧠 تنظیمات AI و اینترنت</Text><Text style={styles.arrow}>›</Text></Pressable>
       {showAISettings && <View style={styles.settingsBox}>
-        <Text style={styles.settingsHint}>کلید فقط در Secure Store گوشی ذخیره می‌شود. Internet Agent برای اطلاعات زنده از Groq Compound استفاده می‌کند.</Text>
+        <Text style={styles.settingsHint}>همین Groq API Key برای فهم فرمان، اینترنت و تبدیل صدای فارسی به متن استفاده می‌شود و فقط در Secure Store گوشی ذخیره می‌شود.</Text>
         <TextInput value={aiKey} onChangeText={setAiKey} placeholder="Groq API Key" placeholderTextColor="#687083" secureTextEntry style={styles.settingsInput}/>
         <TextInput value={aiBaseUrl} onChangeText={setAiBaseUrl} placeholder="API URL" placeholderTextColor="#687083" autoCapitalize="none" style={styles.settingsInput}/>
         <TextInput value={aiModel} onChangeText={setAiModel} placeholder="Planner model" placeholderTextColor="#687083" autoCapitalize="none" style={styles.settingsInput}/>
@@ -341,7 +408,7 @@ export default function App() {
       <Text style={[styles.sectionTitle,{marginTop:22,marginBottom:10}]}>دسترسی‌ها</Text>
       <View style={styles.card}>{permissionItems.map(([id,title,action])=><Pressable key={id} style={styles.permissionButton} onPress={action}><Text style={styles.permissionText}>{icon(id)} {title}</Text><Text style={styles.arrow}>›</Text></Pressable>)}</View>
 
-      <Pressable style={styles.infoButton} onPress={()=>Alert.alert('محدودیت‌های iOS','فرنگیس به هر چیزی که iOS با API یا Picker اجازه دهد وصل می‌شود؛ اما iOS لیست کامل برنامه‌های نصب‌شده، کل دیتابیس Apple Notes، تاریخچه iMessage/SMS و Call History را به اپ ثالث نمی‌دهد. برای Notes و کارهای سیستمی می‌توانیم از Shortcuts پل بزنیم.')}><Text style={styles.infoButtonText}>محدودیت‌های واقعی iOS</Text></Pressable>
+      <Pressable style={styles.infoButton} onPress={()=>Alert.alert('مرحله بعد','اول نسخه صوتی را عملیاتی و پایدار می‌کنیم. Wake phrase «هی فرنگیس» و پل‌های Shortcuts را بعد از تست این نسخه اضافه می‌کنیم.')}><Text style={styles.infoButtonText}>نقشه راه فرنگیس صوتی</Text></Pressable>
     </ScrollView>
   );
 }
@@ -349,7 +416,10 @@ export default function App() {
 const styles = StyleSheet.create({
   page:{flex:1,backgroundColor:'#0B0D12'}, content:{paddingTop:56,paddingHorizontal:16,paddingBottom:80}, logo:{textAlign:'center',fontSize:54},
   title:{color:'#FFF',textAlign:'center',fontSize:31,fontWeight:'900',marginTop:4}, subtitle:{color:'#8D96A8',textAlign:'center',marginTop:4,marginBottom:20},
-  sectionTitle:{color:'#FFF',fontSize:16,fontWeight:'800',textAlign:'right'}, commandCard:{backgroundColor:'#151922',borderRadius:24,padding:16},
+  sectionTitle:{color:'#FFF',fontSize:16,fontWeight:'800',textAlign:'right'},
+  voiceCard:{backgroundColor:'#151922',borderRadius:24,padding:18,marginBottom:16,alignItems:'center'},voiceHeroTitle:{color:'#FFF',fontSize:20,fontWeight:'900',textAlign:'center'},voiceHeroHint:{color:'#8D96A8',fontSize:13,lineHeight:20,textAlign:'center',marginTop:6},
+  micButton:{marginTop:16,minWidth:220,backgroundColor:'#4B66F0',borderRadius:24,paddingVertical:16,paddingHorizontal:22,alignItems:'center'},micButtonRecording:{backgroundColor:'#B23A48'},micIcon:{fontSize:30},micText:{color:'#FFF',fontWeight:'900',fontSize:15,marginTop:5},
+  commandCard:{backgroundColor:'#151922',borderRadius:24,padding:16},
   input:{minHeight:86,backgroundColor:'#0E1118',borderWidth:1,borderColor:'#2A3140',borderRadius:17,color:'#FFF',fontSize:16,padding:14,marginTop:12},
   row:{flexDirection:'row',gap:10,marginTop:12}, primaryButton:{flex:1,backgroundColor:'#4B66F0',borderRadius:15,paddingVertical:14,alignItems:'center'},
   disabledButton:{opacity:.55},primaryButtonText:{color:'#FFF',fontWeight:'900'},clearButton:{backgroundColor:'#242A35',borderRadius:15,paddingVertical:14,paddingHorizontal:18,alignItems:'center'},clearButtonText:{color:'#D9DEEA',fontWeight:'800'},
