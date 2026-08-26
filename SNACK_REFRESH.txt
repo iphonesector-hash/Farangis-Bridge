@@ -1,0 +1,1 @@
+Snack refresh marker — 2026-08-26. Safe no-op file used to force a fresh Git import after restoring the stable main branch.
