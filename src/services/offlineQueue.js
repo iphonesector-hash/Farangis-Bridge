@@ -1,5 +1,4 @@
 import * as SecureStore from 'expo-secure-store';
-import { submitAction } from './farangisApi';
 
 const KEY = 'farangis_offline_action_queue';
 
@@ -19,14 +18,14 @@ export async function enqueueAction(action) {
   return items.length;
 }
 
-export async function flushActionQueue() {
+export async function flushActionQueue(sender) {
   const items = await readQueue();
-  if (!items.length) return { sent: 0, remaining: 0 };
+  if (!items.length || typeof sender !== 'function') return { sent: 0, remaining: items.length };
   const remaining = [];
   let sent = 0;
   for (const item of items) {
     try {
-      await submitAction({ tool: item.tool, args: item.args, confirmed: item.confirmed === true });
+      await sender({ tool: item.tool, args: item.args, confirmed: item.confirmed === true }, { allowQueue: false });
       sent += 1;
     } catch {
       remaining.push({ ...item, attempts: (item.attempts || 0) + 1 });
