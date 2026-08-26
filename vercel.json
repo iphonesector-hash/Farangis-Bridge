@@ -6,6 +6,10 @@
       "memory": 512
     }
   },
+  "rewrites": [
+    { "source": "/", "destination": "/voice-lab.html" },
+    { "source": "/voice-lab", "destination": "/voice-lab.html" }
+  ],
   "headers": [
     {
       "source": "/api/(.*)",
@@ -13,7 +17,7 @@
         { "key": "X-Content-Type-Options", "value": "nosniff" },
         { "key": "Referrer-Policy", "value": "no-referrer" },
         { "key": "Access-Control-Allow-Origin", "value": "*" },
-        { "key": "Access-Control-Allow-Headers", "value": "Content-Type, x-farangis-device-id, x-farangis-device-token" },
+        { "key": "Access-Control-Allow-Headers", "value": "Content-Type, x-farangis-device-id, x-farangis-device-token, x-farangis-groq-key, x-farangis-elevenlabs-key, x-farangis-voice-id, x-farangis-tts-model" },
         { "key": "Access-Control-Allow-Methods", "value": "GET, POST, OPTIONS" }
       ]
     }
