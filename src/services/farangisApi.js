@@ -6,6 +6,7 @@ import { enqueueAction, flushActionQueue } from './offlineQueue';
 const KEY_BASE_URL = 'farangis_core_url';
 const KEY_DEVICE_TOKEN = 'farangis_device_token';
 const KEY_DEVICE_ID = 'farangis_device_id';
+const DEFAULT_CORE_URL = 'https://farangis-core-v2-i-sector.vercel.app';
 
 const cleanBase = (value = '') => String(value).trim().replace(/\/+$/, '');
 
@@ -20,19 +21,18 @@ export async function getCoreConfig() {
     deviceId = `ios-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
     await SecureStore.setItemAsync(KEY_DEVICE_ID, deviceId);
   }
-  return { baseUrl: cleanBase(baseUrl), deviceToken: deviceToken || '', deviceId };
+  return { baseUrl: cleanBase(baseUrl || DEFAULT_CORE_URL), deviceToken: deviceToken || '', deviceId };
 }
 
 export async function saveCoreConfig({ baseUrl, deviceToken }) {
   await Promise.all([
-    SecureStore.setItemAsync(KEY_BASE_URL, cleanBase(baseUrl)),
+    SecureStore.setItemAsync(KEY_BASE_URL, cleanBase(baseUrl || DEFAULT_CORE_URL)),
     SecureStore.setItemAsync(KEY_DEVICE_TOKEN, String(deviceToken || '').trim()),
   ]);
 }
 
 async function coreFetch(path, options = {}) {
   const cfg = await getCoreConfig();
-  if (!cfg.baseUrl) throw new Error('آدرس Farangis Core هنوز تنظیم نشده.');
   const headers = {
     'Content-Type': 'application/json',
     'x-farangis-device-id': cfg.deviceId,
@@ -108,7 +108,6 @@ export async function submitAction(action, { allowQueue = true } = {}) {
 
 export async function transcribeViaCore({ uri }) {
   const cfg = await getCoreConfig();
-  if (!cfg.baseUrl) throw new Error('آدرس Farangis Core هنوز تنظیم نشده.');
   const form = new FormData();
   form.append('file', { uri, name: 'voice.m4a', type: 'audio/m4a' });
   form.append('model', 'whisper-large-v3-turbo');
@@ -128,7 +127,6 @@ export async function transcribeViaCore({ uri }) {
 
 export async function buildTtsDownloadUrl(text) {
   const cfg = await getCoreConfig();
-  if (!cfg.baseUrl) throw new Error('آدرس Farangis Core هنوز تنظیم نشده.');
   const safeText = String(text || '').replace(/\s+/g, ' ').trim().slice(0, 1200);
   return {
     url: `${cfg.baseUrl}/api/v1/voice/tts?text=${encodeURIComponent(safeText)}`,
