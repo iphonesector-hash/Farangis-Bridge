@@ -1,17 +1,16 @@
 import * as SecureStore from 'expo-secure-store';
 import * as Device from 'expo-device';
 
-const HISTORY_KEY = 'farangis_ai_history_v1';
-const MEMORY_KEY = 'farangis_ai_memories_v1';
-const MAX_HISTORY_MESSAGES = 18;
-const MAX_MEMORIES = 40;
+const HISTORY_KEY = 'farangis_ai_history_v2';
+const MEMORY_KEY = 'farangis_ai_memories_v2';
+const MAX_HISTORY_MESSAGES = 24;
+const MAX_MEMORIES = 60;
 
 const SYSTEM_PROMPT = `You are Farangis, a capable Persian iPhone personal assistant and intent planner.
-You should feel conversational, context-aware, concise, and practical — not like a rigid command parser.
-Return ONLY valid JSON. Never wrap JSON in markdown.
+You are conversational, context-aware, practical and concise. Return ONLY valid JSON, never markdown.
 
-Return one of:
-{"type":"tool","tool":"TOOL_NAME","args":{...},"reply":"optional short Persian sentence"}
+Return exactly one of:
+{"type":"tool","tool":"TOOL_NAME","args":{},"reply":"optional short Persian sentence"}
 {"type":"answer","text":"natural Persian answer"}
 
 Available tools:
@@ -28,7 +27,15 @@ maps_search {"query":"..."}
 clipboard_read {}
 clipboard_write {"text":"..."}
 google_search {"query":"..."}
+internet_search {"query":"..."}
 open_url {"url":"..."}
+open_app {"app":"..."}
+files_pick {}
+file_read_selected {}
+file_search_selected {"query":"..."}
+file_share_selected {}
+shortcut_run {"name":"...","input":"..."}
+notes_open {}
 share {"text":"..."}
 secure_save {"key":"...","value":"..."}
 secure_read {"key":"..."}
@@ -36,44 +43,30 @@ calendar_create {"title":"..."}
 reminder {"minutes":10,"body":"..."}
 
 Rules:
-- Understand colloquial Persian, implied references, pronouns, typos, and spelling variants.
-- Use recent conversation context, saved memories, and live device context when interpreting the current request.
-- If the user asks about their phone/device/OS/model, answer from DEVICE CONTEXT. Do not say you cannot detect it when device context contains the answer.
-- Prefer a device tool whenever the request can be fulfilled locally.
-- If a user says things like «اون»، «همون»، «قبلی»، resolve them from recent conversation when possible.
-- For normal conversation or general questions, answer naturally in Persian instead of saying the command is unsupported.
-- Do not invent contact data, location, photos, clipboard content, device details, or stored secrets.
-- Never claim a device action happened unless you selected the corresponding tool.
-- For destructive or irreversible requests, ask for explicit confirmation instead of executing.
-- Never expose or repeat the API key.
-- Keep answers compact unless the user asks for detail.`;
+- Understand colloquial Persian, typos, implied references and pronouns.
+- Use recent conversation, saved memories and DEVICE CONTEXT when relevant.
+- If the user asks about their phone model, OS, device type or manufacturer, answer from DEVICE CONTEXT.
+- Any request that needs CURRENT or LIVE information (today's prices, currency, weather, news, sports, latest releases, current public facts) MUST use internet_search. Never answer those from model memory.
+- Use files_pick when the user asks to browse/open/select a file. iOS requires the system picker; do not claim unrestricted file-system access.
+- file_read_selected and file_search_selected operate only on a file the user selected through the Files picker.
+- iOS does not expose a complete installed-app list to third-party apps. If asked for all installed apps, explain that limitation. You may still use open_app for known apps.
+- Apple Notes does not expose a public API for arbitrary full-database search. Use notes_open to open Notes, or shortcut_run when a matching user Shortcut exists.
+- Prefer device tools over generic answers when a tool can fulfill the request.
+- Do not invent contacts, files, installed apps, notes, location, photos, clipboard, device data or stored secrets.
+- Never claim an action happened unless you selected its tool.
+- For destructive/irreversible actions ask for explicit confirmation.
+- Never expose or repeat API keys.`;
 
 const DEFAULT_MODEL = 'openai/gpt-oss-120b';
 const FALLBACK_MODELS = ['openai/gpt-oss-120b', 'openai/gpt-oss-20b', 'groq/compound-mini'];
 
-const normalizePersian = (value = '') =>
-  String(value)
-    .trim()
-    .replace(/ي/g, 'ی')
-    .replace(/ك/g, 'ک')
-    .replace(/\s+/g, ' ');
-
-const safeJsonParse = (value, fallback) => {
-  try {
-    const parsed = JSON.parse(value);
-    return parsed ?? fallback;
-  } catch {
-    return fallback;
-  }
-};
-
+const normalizePersian = (value = '') => String(value).trim().replace(/ي/g, 'ی').replace(/ك/g, 'ک').replace(/\s+/g, ' ');
+const safeJsonParse = (value, fallback) => { try { return JSON.parse(value) ?? fallback; } catch { return fallback; } };
 const cleanJson = (value) => {
   const text = String(value || '').trim();
   const start = text.indexOf('{');
   const end = text.lastIndexOf('}');
-  if (start === -1 || end === -1 || end < start) {
-    throw new Error('AI response was not valid JSON');
-  }
+  if (start === -1 || end === -1 || end < start) throw new Error('AI response was not valid JSON');
   return JSON.parse(text.slice(start, end + 1));
 };
 
@@ -90,11 +83,8 @@ const deviceTypeName = (type) => {
 
 async function getDeviceContext() {
   let asyncType = null;
-  try {
-    asyncType = await Device.getDeviceTypeAsync();
-  } catch (_) {}
-
-  const values = {
+  try { asyncType = await Device.getDeviceTypeAsync(); } catch (_) {}
+  return `DEVICE CONTEXT (live):\n${JSON.stringify({
     brand: Device.brand || null,
     manufacturer: Device.manufacturer || null,
     modelName: Device.modelName || null,
@@ -105,41 +95,27 @@ async function getDeviceContext() {
     osName: Device.osName || null,
     osVersion: Device.osVersion || null,
     isRealDevice: Boolean(Device.isDevice),
-  };
-
-  return `DEVICE CONTEXT (live from expo-device):\n${JSON.stringify(values, null, 2)}`;
+  }, null, 2)}`;
 }
 
 async function loadHistory() {
   try {
-    const raw = await SecureStore.getItemAsync(HISTORY_KEY);
-    const parsed = safeJsonParse(raw || '[]', []);
+    const parsed = safeJsonParse((await SecureStore.getItemAsync(HISTORY_KEY)) || '[]', []);
     return Array.isArray(parsed) ? parsed.slice(-MAX_HISTORY_MESSAGES) : [];
-  } catch {
-    return [];
-  }
+  } catch { return []; }
 }
-
 async function saveHistory(history) {
-  try {
-    const compact = (Array.isArray(history) ? history : []).slice(-MAX_HISTORY_MESSAGES);
-    await SecureStore.setItemAsync(HISTORY_KEY, JSON.stringify(compact));
-  } catch (_) {}
+  try { await SecureStore.setItemAsync(HISTORY_KEY, JSON.stringify((history || []).slice(-MAX_HISTORY_MESSAGES))); } catch (_) {}
 }
-
 async function loadMemories() {
   try {
-    const raw = await SecureStore.getItemAsync(MEMORY_KEY);
-    const parsed = safeJsonParse(raw || '[]', []);
+    const parsed = safeJsonParse((await SecureStore.getItemAsync(MEMORY_KEY)) || '[]', []);
     return Array.isArray(parsed) ? parsed.slice(-MAX_MEMORIES) : [];
-  } catch {
-    return [];
-  }
+  } catch { return []; }
 }
-
 async function saveMemories(memories) {
   try {
-    const unique = [...new Set((Array.isArray(memories) ? memories : []).map(normalizePersian).filter(Boolean))];
+    const unique = [...new Set((memories || []).map(normalizePersian).filter(Boolean))];
     await SecureStore.setItemAsync(MEMORY_KEY, JSON.stringify(unique.slice(-MAX_MEMORIES)));
   } catch (_) {}
 }
@@ -147,195 +123,126 @@ async function saveMemories(memories) {
 function explicitMemoryCommand(command) {
   const raw = normalizePersian(command);
   const lower = raw.toLowerCase();
-
-  const rememberPrefixes = [
-    'یادت باشه ',
-    'یادت بمونه ',
-    'به خاطر بسپار ',
-    'به یاد داشته باش ',
-    'remember ',
-  ];
-  for (const prefix of rememberPrefixes) {
-    if (lower.startsWith(prefix.toLowerCase())) {
-      return { type: 'remember', text: raw.slice(prefix.length).trim() };
-    }
+  for (const prefix of ['یادت باشه ', 'یادت بمونه ', 'به خاطر بسپار ', 'به یاد داشته باش ', 'remember ']) {
+    if (lower.startsWith(prefix.toLowerCase())) return { type: 'remember', text: raw.slice(prefix.length).trim() };
   }
-
-  if (
-    lower === 'چی یادت هست' ||
-    lower === 'چه چیزایی یادت هست' ||
-    lower === 'حافظه ات چیه' ||
-    lower === 'حافظه‌ات چیه' ||
-    lower === 'what do you remember'
-  ) {
-    return { type: 'list' };
-  }
-
-  if (
-    lower === 'حافظه رو پاک کن' ||
-    lower === 'حافظه ات رو پاک کن' ||
-    lower === 'حافظه‌ات رو پاک کن' ||
-    lower === 'همه چیز رو فراموش کن' ||
-    lower === 'clear memory'
-  ) {
-    return { type: 'clear' };
-  }
-
+  if (['چی یادت هست','چه چیزایی یادت هست','حافظه ات چیه','حافظه‌ات چیه','what do you remember'].includes(lower)) return { type: 'list' };
+  if (['حافظه رو پاک کن','حافظه ات رو پاک کن','حافظه‌ات رو پاک کن','همه چیز رو فراموش کن','clear memory'].includes(lower)) return { type: 'clear' };
   const forgetMatch = raw.match(/^(?:فراموش کن|از یادت ببر)\s+(.+)$/i);
   if (forgetMatch) return { type: 'forget', text: forgetMatch[1].trim() };
-
   return null;
 }
 
 async function handleExplicitMemory(command) {
   const action = explicitMemoryCommand(command);
   if (!action) return null;
-
   const memories = await loadMemories();
-
   if (action.type === 'remember') {
     if (!action.text) return { type: 'answer', text: 'چی رو می‌خوای یادم بمونه؟' };
     await saveMemories([...memories, action.text]);
     return { type: 'answer', text: `باشه، یادم می‌مونه: ${action.text}` };
   }
-
-  if (action.type === 'list') {
-    if (!memories.length) return { type: 'answer', text: 'هنوز چیزی رو به حافظه بلندمدتم نسپردی.' };
-    return {
-      type: 'answer',
-      text: `این‌ها رو یادم مونده:\n${memories.map((m, i) => `${i + 1}. ${m}`).join('\n')}`,
-    };
-  }
-
+  if (action.type === 'list') return { type: 'answer', text: memories.length ? `این‌ها رو یادم مونده:\n${memories.map((m,i)=>`${i+1}. ${m}`).join('\n')}` : 'هنوز چیزی رو به حافظه بلندمدتم نسپردی.' };
   if (action.type === 'clear') {
-    await saveMemories([]);
-    await saveHistory([]);
+    await saveMemories([]); await saveHistory([]);
     return { type: 'answer', text: 'حافظه و سابقه گفت‌وگوی محلی پاک شد.' };
   }
-
   if (action.type === 'forget') {
     const needle = normalizePersian(action.text).toLowerCase();
     const filtered = memories.filter((m) => !normalizePersian(m).toLowerCase().includes(needle));
     await saveMemories(filtered);
-    return {
-      type: 'answer',
-      text: filtered.length === memories.length ? 'چیزی مطابقش توی حافظه پیدا نکردم.' : 'باشه، فراموشش کردم.',
-    };
+    return { type: 'answer', text: filtered.length === memories.length ? 'چیزی مطابقش توی حافظه پیدا نکردم.' : 'باشه، فراموشش کردم.' };
   }
-
   return null;
 }
 
-async function callModel({ endpoint, apiKey, model, command, history, memories, deviceContext }) {
-  const memoryContext = memories.length
-    ? `Saved long-term user memories (use only when relevant):\n- ${memories.join('\n- ')}`
-    : 'No saved long-term memories.';
-
-  const recentMessages = history
-    .filter((m) => m && (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string')
-    .slice(-MAX_HISTORY_MESSAGES);
-
+async function callPlanner({ endpoint, apiKey, model, command, history, memories, deviceContext }) {
+  const memoryContext = memories.length ? `Saved long-term memories:\n- ${memories.join('\n- ')}` : 'No saved long-term memories.';
+  const recent = history.filter((m) => m && ['user','assistant'].includes(m.role) && typeof m.content === 'string').slice(-MAX_HISTORY_MESSAGES);
   const response = await fetch(endpoint, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${apiKey}`,
-    },
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
     body: JSON.stringify({
       model,
-      temperature: 0.35,
+      temperature: 0.25,
       response_format: { type: 'json_object' },
       messages: [
         { role: 'system', content: SYSTEM_PROMPT },
         { role: 'system', content: memoryContext },
         { role: 'system', content: deviceContext },
-        ...recentMessages,
+        ...recent,
         { role: 'user', content: String(command || '') },
       ],
     }),
   });
-
-  const raw = await response.text();
-  return { response, raw };
+  return { response, raw: await response.text() };
 }
 
 const looksLikeModelError = (status, raw) => {
   if (status === 404) return true;
   const text = String(raw || '').toLowerCase();
-  return (
-    text.includes('model_not_found') ||
-    text.includes('does not exist') ||
-    text.includes('do not have access') ||
-    text.includes('model is not available')
-  );
+  return text.includes('model_not_found') || text.includes('does not exist') || text.includes('do not have access') || text.includes('model is not available');
 };
 
 function assistantHistoryText(plan) {
-  if (!plan || typeof plan !== 'object') return '';
-  if (plan.type === 'answer') return String(plan.text || '');
-  if (plan.type === 'tool') {
-    const args = plan.args && typeof plan.args === 'object' ? JSON.stringify(plan.args) : '{}';
-    return `Tool selected: ${plan.tool || 'unknown'} ${args}${plan.reply ? ` — ${plan.reply}` : ''}`;
-  }
+  if (plan?.type === 'answer') return String(plan.text || '');
+  if (plan?.type === 'tool') return `Tool selected: ${plan.tool || 'unknown'} ${JSON.stringify(plan.args || {})}`;
   return '';
 }
 
 export async function planWithAI({ command, baseUrl, apiKey, model }) {
   const memoryResult = await handleExplicitMemory(command);
   if (memoryResult) return memoryResult;
-
   if (!apiKey) throw new Error('AI_API_KEY_MISSING');
   const endpoint = String(baseUrl || '').trim();
   if (!endpoint) throw new Error('AI_BASE_URL_MISSING');
 
-  const [history, memories, deviceContext] = await Promise.all([
-    loadHistory(),
-    loadMemories(),
-    getDeviceContext(),
-  ]);
-
-  const requested = String(model || DEFAULT_MODEL).trim();
-  const candidates = [...new Set([requested, ...FALLBACK_MODELS])];
+  const [history, memories, deviceContext] = await Promise.all([loadHistory(), loadMemories(), getDeviceContext()]);
+  const candidates = [...new Set([String(model || DEFAULT_MODEL).trim(), ...FALLBACK_MODELS])];
   let lastError = '';
-
   for (const candidate of candidates) {
-    const { response, raw } = await callModel({
-      endpoint,
-      apiKey,
-      model: candidate,
-      command,
-      history,
-      memories,
-      deviceContext,
-    });
-
+    const { response, raw } = await callPlanner({ endpoint, apiKey, model: candidate, command, history, memories, deviceContext });
     if (!response.ok) {
       lastError = `AI HTTP ${response.status}: ${raw.slice(0, 300)}`;
       if (looksLikeModelError(response.status, raw)) continue;
       throw new Error(lastError);
     }
-
-    let payload;
-    try {
-      payload = JSON.parse(raw);
-    } catch {
-      throw new Error('AI provider returned invalid JSON');
-    }
-
+    const payload = safeJsonParse(raw, null);
     const content = payload?.choices?.[0]?.message?.content;
     if (!content) throw new Error('AI provider returned no content');
-
     const plan = cleanJson(content);
     const assistantText = assistantHistoryText(plan);
-    await saveHistory([
-      ...history,
-      { role: 'user', content: String(command || '') },
-      ...(assistantText ? [{ role: 'assistant', content: assistantText }] : []),
-    ]);
+    await saveHistory([...history, { role: 'user', content: String(command || '') }, ...(assistantText ? [{ role: 'assistant', content: assistantText }] : [])]);
     return plan;
   }
-
   throw new Error(lastError || 'No accessible AI model was found for this API key.');
+}
+
+export async function answerWithInternet({ query, baseUrl, apiKey }) {
+  if (!apiKey) throw new Error('AI_API_KEY_MISSING');
+  const endpoint = String(baseUrl || DEFAULT_AI_CONFIG.baseUrl).trim();
+  const [history, memories, deviceContext] = await Promise.all([loadHistory(), loadMemories(), getDeviceContext()]);
+  const prompt = `You are Farangis. Answer the user's request in natural Persian. This request may need live/current public information. Use your built-in web search and website tools whenever useful. Prefer recent trustworthy sources, state dates when freshness matters, and do not fabricate current values. Be concise but include enough context.\n\n${deviceContext}\n\nSaved memories when relevant:\n${memories.join('\n') || 'none'}`;
+  const recent = history.filter((m) => m && ['user','assistant'].includes(m.role) && typeof m.content === 'string').slice(-8);
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+    body: JSON.stringify({
+      model: 'groq/compound',
+      messages: [
+        { role: 'system', content: prompt },
+        ...recent,
+        { role: 'user', content: String(query || '') },
+      ],
+    }),
+  });
+  const raw = await response.text();
+  if (!response.ok) throw new Error(`Internet AI HTTP ${response.status}: ${raw.slice(0, 400)}`);
+  const payload = safeJsonParse(raw, null);
+  const content = payload?.choices?.[0]?.message?.content;
+  if (!content) throw new Error('Internet agent returned no content');
+  await saveHistory([...history, { role: 'user', content: String(query || '') }, { role: 'assistant', content: String(content) }]);
+  return String(content);
 }
 
 export const DEFAULT_AI_CONFIG = {
