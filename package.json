@@ -6,7 +6,8 @@
     "start": "expo start --tunnel --go",
     "start:lan": "expo start --lan --go",
     "start:web": "expo start --web",
-    "verify:server": "node --check api/_core.js && node --check api/v1/health.js && node --check api/v1/chat.js && node --check api/v1/actions.js && node --check api/v1/config.js && node --check api/v1/memory.js && node --check api/v1/activity.js && node --check api/v1/wake.js && node --check api/v1/voice/stt.js && node --check api/v1/voice/tts.js",
+    "test:core": "node tests/core.test.js",
+    "verify:server": "node --check api/_core.js && node --check api/_connectors.js && node --check api/v1/health.js && node --check api/v1/chat.js && node --check api/v1/actions.js && node --check api/v1/config.js && node --check api/v1/memory.js && node --check api/v1/activity.js && node --check api/v1/export.js && node --check api/v1/wake.js && node --check api/v1/voice/stt.js && node --check api/v1/voice/tts.js && npm run test:core",
     "verify:expo": "npx expo export --platform ios --output-dir dist-verify",
     "verify": "npm run verify:server && npm run verify:expo"
   },
