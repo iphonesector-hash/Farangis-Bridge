@@ -1,4 +1,5 @@
 import * as SecureStore from 'expo-secure-store';
+import * as Device from 'expo-device';
 
 const HISTORY_KEY = 'farangis_ai_history_v1';
 const MEMORY_KEY = 'farangis_ai_memories_v1';
@@ -36,11 +37,12 @@ reminder {"minutes":10,"body":"..."}
 
 Rules:
 - Understand colloquial Persian, implied references, pronouns, typos, and spelling variants.
-- Use recent conversation context and saved memories when interpreting the current request.
+- Use recent conversation context, saved memories, and live device context when interpreting the current request.
+- If the user asks about their phone/device/OS/model, answer from DEVICE CONTEXT. Do not say you cannot detect it when device context contains the answer.
 - Prefer a device tool whenever the request can be fulfilled locally.
 - If a user says things like «اون»، «همون»، «قبلی»، resolve them from recent conversation when possible.
 - For normal conversation or general questions, answer naturally in Persian instead of saying the command is unsupported.
-- Do not invent contact data, location, photos, clipboard content, or stored secrets.
+- Do not invent contact data, location, photos, clipboard content, device details, or stored secrets.
 - Never claim a device action happened unless you selected the corresponding tool.
 - For destructive or irreversible requests, ask for explicit confirmation instead of executing.
 - Never expose or repeat the API key.
@@ -74,6 +76,39 @@ const cleanJson = (value) => {
   }
   return JSON.parse(text.slice(start, end + 1));
 };
+
+const deviceTypeName = (type) => {
+  const map = {
+    [Device.DeviceType.UNKNOWN]: 'unknown',
+    [Device.DeviceType.PHONE]: 'phone',
+    [Device.DeviceType.TABLET]: 'tablet',
+    [Device.DeviceType.DESKTOP]: 'desktop',
+    [Device.DeviceType.TV]: 'tv',
+  };
+  return map[type] || 'unknown';
+};
+
+async function getDeviceContext() {
+  let asyncType = null;
+  try {
+    asyncType = await Device.getDeviceTypeAsync();
+  } catch (_) {}
+
+  const values = {
+    brand: Device.brand || null,
+    manufacturer: Device.manufacturer || null,
+    modelName: Device.modelName || null,
+    modelId: Device.modelId || null,
+    deviceName: Device.deviceName || null,
+    deviceType: deviceTypeName(asyncType ?? Device.deviceType),
+    deviceYearClass: Device.deviceYearClass || null,
+    osName: Device.osName || null,
+    osVersion: Device.osVersion || null,
+    isRealDevice: Boolean(Device.isDevice),
+  };
+
+  return `DEVICE CONTEXT (live from expo-device):\n${JSON.stringify(values, null, 2)}`;
+}
 
 async function loadHistory() {
   try {
@@ -191,7 +226,7 @@ async function handleExplicitMemory(command) {
   return null;
 }
 
-async function callModel({ endpoint, apiKey, model, command, history, memories }) {
+async function callModel({ endpoint, apiKey, model, command, history, memories, deviceContext }) {
   const memoryContext = memories.length
     ? `Saved long-term user memories (use only when relevant):\n- ${memories.join('\n- ')}`
     : 'No saved long-term memories.';
@@ -213,6 +248,7 @@ async function callModel({ endpoint, apiKey, model, command, history, memories }
       messages: [
         { role: 'system', content: SYSTEM_PROMPT },
         { role: 'system', content: memoryContext },
+        { role: 'system', content: deviceContext },
         ...recentMessages,
         { role: 'user', content: String(command || '') },
       ],
@@ -252,7 +288,12 @@ export async function planWithAI({ command, baseUrl, apiKey, model }) {
   const endpoint = String(baseUrl || '').trim();
   if (!endpoint) throw new Error('AI_BASE_URL_MISSING');
 
-  const [history, memories] = await Promise.all([loadHistory(), loadMemories()]);
+  const [history, memories, deviceContext] = await Promise.all([
+    loadHistory(),
+    loadMemories(),
+    getDeviceContext(),
+  ]);
+
   const requested = String(model || DEFAULT_MODEL).trim();
   const candidates = [...new Set([requested, ...FALLBACK_MODELS])];
   let lastError = '';
@@ -265,6 +306,7 @@ export async function planWithAI({ command, baseUrl, apiKey, model }) {
       command,
       history,
       memories,
+      deviceContext,
     });
 
     if (!response.ok) {
