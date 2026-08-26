@@ -1,0 +1,14 @@
+name: Publish Farangis Expo Go update
+
+on:
+  push:
+    branches: ['main']
+
+jobs:
+  publish_update:
+    name: Publish Expo Go preview
+    type: update
+    params:
+      branch: main
+      platform: ios
+      message: 'Farangis iOS preview from GitHub main'
