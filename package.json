@@ -1,11 +1,14 @@
 {
   "name": "farangis-bridge",
-  "version": "1.6.0",
+  "version": "2.0.0",
   "main": "node_modules/expo/AppEntry.js",
   "scripts": {
-    "start": "expo start --tunnel",
-    "start:lan": "expo start --lan",
-    "start:web": "expo start --web"
+    "start": "expo start --tunnel --go",
+    "start:lan": "expo start --lan --go",
+    "start:web": "expo start --web",
+    "verify:server": "node --check api/_core.js && node --check api/v1/health.js && node --check api/v1/chat.js && node --check api/v1/actions.js && node --check api/v1/config.js && node --check api/v1/memory.js && node --check api/v1/activity.js && node --check api/v1/wake.js && node --check api/v1/voice/stt.js && node --check api/v1/voice/tts.js",
+    "verify:expo": "npx expo export --platform ios --output-dir dist-verify",
+    "verify": "npm run verify:server && npm run verify:expo"
   },
   "dependencies": {
     "expo": "~54.0.0",
