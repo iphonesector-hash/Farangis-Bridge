@@ -93,9 +93,21 @@ function parsePersianAmount(text) {
     const ambiguousToman = /تومن|تومان/.test(t) && !digitMatch[2] && n > 0 && n < 10_000;
     return { amount: ambiguousToman ? n * 1_000 : n, ambiguousToman };
   }
+
   const tokens = t.split(/[\s‌-]+/).filter(Boolean);
-  const amount = parseWordNumber(tokens.filter((x) => x !== 'تومان' && x !== 'تومن'));
-  return amount !== null ? { amount, ambiguousToman: false } : { amount: null, ambiguousToman: false };
+  let best = null;
+  for (let i = 0; i < tokens.length; i += 1) {
+    if (!Object.prototype.hasOwnProperty.call(numberWords, tokens[i])) continue;
+    const sequence = [];
+    for (let j = i; j < tokens.length; j += 1) {
+      const token = tokens[j];
+      if (token === 'و' || token === 'هزار' || token === 'میلیون' || Object.prototype.hasOwnProperty.call(numberWords, token)) sequence.push(token);
+      else break;
+    }
+    const value = parseWordNumber(sequence);
+    if (value !== null && (best === null || value > best)) best = value;
+  }
+  return best !== null ? { amount: best, ambiguousToman: false } : { amount: null, ambiguousToman: false };
 }
 
 function parseRelativeMinutes(text) {
@@ -110,11 +122,15 @@ function parseRelativeMinutes(text) {
   if (/نیم ساعت/.test(t)) return 30;
   const unitMatch = t.match(/((?:[آ-ی]+(?:\s+و\s+)?)+)\s+(دقیقه|ساعت|روز)/);
   if (unitMatch) {
-    const value = parseWordNumber(unitMatch[1].split(/\s+/).filter(Boolean));
-    if (value !== null) {
-      if (unitMatch[2] === 'دقیقه') return value;
-      if (unitMatch[2] === 'ساعت') return value * 60;
-      if (unitMatch[2] === 'روز') return value * 1440;
+    const words = unitMatch[1].split(/\s+/).filter(Boolean);
+    for (let i = 0; i < words.length; i += 1) {
+      if (!Object.prototype.hasOwnProperty.call(numberWords, words[i])) continue;
+      const value = parseWordNumber(words.slice(i));
+      if (value !== null) {
+        if (unitMatch[2] === 'دقیقه') return value;
+        if (unitMatch[2] === 'ساعت') return value * 60;
+        if (unitMatch[2] === 'روز') return value * 1440;
+      }
     }
   }
   if (/پس ?فردا/.test(t)) return 2880;
