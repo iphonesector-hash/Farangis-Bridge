@@ -25,6 +25,16 @@ async function queueAction(deviceId, tool, args) {
   return stored ? { queued: true, persisted: true } : { queued: true, persisted: false };
 }
 
+function sanitizePaymentArgs(args) {
+  const clean = { ...args };
+  if (clean.customerName) {
+    clean.customerName = String(clean.customerName)
+      .replace(/\s+(?:[0-9۰-۹٠-٩][^\s]*|صفر|یک|يه|یه|دو|سه|چهار|پنج|شش|هفت|هشت|نه|ده|یازده|دوازده|سیزده|چهارده|پانزده|شانزده|هفده|هجده|نوزده|بیست|سی|چهل|پنجاه|شصت|هفتاد|هشتاد|نود|صد|دویست|سیصد|چهارصد|پانصد|ششصد|هفتصد|هشتصد|نهصد|هزار|میلیون|تومان|تومن)(?:\s+.*)?$/u, '')
+      .trim();
+  }
+  return clean;
+}
+
 module.exports = async function handler(req, res) {
   if (!requireDevice(req, res) || !rateLimit(req, res, 50)) return;
   if (req.method !== 'POST') return json(res, 405, { error: 'Method not allowed' });
@@ -33,7 +43,8 @@ module.exports = async function handler(req, res) {
   try {
     const body = await readJson(req);
     const tool = String(body.tool || '');
-    const args = body.args && typeof body.args === 'object' ? body.args : {};
+    let args = body.args && typeof body.args === 'object' ? body.args : {};
+    if (tool === 'aquagold.customer_payment') args = sanitizePaymentArgs(args);
     const confirmed = body.confirmed === true;
     if (!tool) return json(res, 400, { error: 'Action tool مشخص نشده.' });
 
