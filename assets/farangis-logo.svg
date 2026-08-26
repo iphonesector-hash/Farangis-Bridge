@@ -1,0 +1,19 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <radialGradient id="bg" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(512 420) rotate(90) scale(560)">
+      <stop stop-color="#172153"/><stop offset="1" stop-color="#060816"/>
+    </radialGradient>
+    <linearGradient id="ring" x1="242" y1="218" x2="812" y2="810" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#42C8FF"/><stop offset=".5" stop-color="#7C6CFF"/><stop offset="1" stop-color="#B76CFF"/>
+    </linearGradient>
+    <filter id="glow" x="100" y="100" width="824" height="824" filterUnits="userSpaceOnUse">
+      <feGaussianBlur stdDeviation="28" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <rect width="1024" height="1024" rx="224" fill="url(#bg)"/>
+  <circle cx="512" cy="430" r="252" stroke="url(#ring)" stroke-width="26" stroke-linecap="round" stroke-dasharray="1200 300" filter="url(#glow)"/>
+  <circle cx="512" cy="430" r="184" fill="#10162E" stroke="rgba(255,255,255,.16)" stroke-width="4"/>
+  <path d="M432 300H616V353H493V406H594V458H493V566H432V300Z" fill="white"/>
+  <text x="512" y="780" text-anchor="middle" fill="white" font-family="Arial,Helvetica,sans-serif" font-size="82" font-weight="800" letter-spacing="18">FARANGIS</text>
+  <text x="512" y="835" text-anchor="middle" fill="#7E89AA" font-family="Arial,Helvetica,sans-serif" font-size="18" font-weight="700" letter-spacing="8">MADE BY SECTOR TEAM</text>
+</svg>
