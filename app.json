@@ -1,7 +1,8 @@
 {
   "expo": {
     "name": "Farangis Bridge",
-    "slug": "farangis-bridge",
+    "slug": "isector",
+    "owner": "isector",
     "version": "1.6.0",
     "orientation": "portrait",
     "userInterfaceStyle": "dark",
