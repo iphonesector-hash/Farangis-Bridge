@@ -71,6 +71,18 @@ const numberWords = {
   صد:100, دویست:200, سیصد:300, چهارصد:400, پانصد:500, ششصد:600, هفتصد:700, هشتصد:800, نهصد:900,
 };
 
+function parseWordNumber(tokens) {
+  let total = 0, current = 0, matched = false;
+  for (const token of tokens) {
+    if (token === 'و') continue;
+    if (token === 'هزار') { total += Math.max(1, current) * 1_000; current = 0; matched = true; continue; }
+    if (token === 'میلیون') { total += Math.max(1, current) * 1_000_000; current = 0; matched = true; continue; }
+    if (Object.prototype.hasOwnProperty.call(numberWords, token)) { current += numberWords[token]; matched = true; continue; }
+    break;
+  }
+  return matched ? total + current : null;
+}
+
 function parsePersianAmount(text) {
   const t = normalizeFa(text).toLowerCase();
   const digitMatch = t.match(/([0-9][0-9,]*)\s*(میلیون|هزار)?/);
@@ -82,14 +94,8 @@ function parsePersianAmount(text) {
     return { amount: ambiguousToman ? n * 1_000 : n, ambiguousToman };
   }
   const tokens = t.split(/[\s‌-]+/).filter(Boolean);
-  let total = 0, current = 0, matched = false;
-  for (const token of tokens) {
-    if (token === 'و') continue;
-    if (token === 'هزار') { total += Math.max(1, current) * 1_000; current = 0; matched = true; continue; }
-    if (token === 'میلیون') { total += Math.max(1, current) * 1_000_000; current = 0; matched = true; continue; }
-    if (Object.prototype.hasOwnProperty.call(numberWords, token)) { current += numberWords[token]; matched = true; }
-  }
-  return matched ? { amount: total + current, ambiguousToman: false } : { amount: null, ambiguousToman: false };
+  const amount = parseWordNumber(tokens.filter((x) => x !== 'تومان' && x !== 'تومن'));
+  return amount !== null ? { amount, ambiguousToman: false } : { amount: null, ambiguousToman: false };
 }
 
 function parseRelativeMinutes(text) {
@@ -102,9 +108,17 @@ function parseRelativeMinutes(text) {
     if (digit[2] === 'روز') return value * 1440;
   }
   if (/نیم ساعت/.test(t)) return 30;
-  if (/یک ساعت|یه ساعت/.test(t)) return 60;
-  if (/فردا/.test(t)) return 1440;
+  const unitMatch = t.match(/((?:[آ-ی]+(?:\s+و\s+)?)+)\s+(دقیقه|ساعت|روز)/);
+  if (unitMatch) {
+    const value = parseWordNumber(unitMatch[1].split(/\s+/).filter(Boolean));
+    if (value !== null) {
+      if (unitMatch[2] === 'دقیقه') return value;
+      if (unitMatch[2] === 'ساعت') return value * 60;
+      if (unitMatch[2] === 'روز') return value * 1440;
+    }
+  }
   if (/پس ?فردا/.test(t)) return 2880;
+  if (/فردا/.test(t)) return 1440;
   return null;
 }
 
