@@ -1,4 +1,5 @@
 const { json, requireDevice, rateLimit } = require('../_core');
+const { connectorStatus } = require('../_connectors');
 
 module.exports = async function handler(req, res) {
   if (!requireDevice(req, res) || !rateLimit(req, res, 120)) return;
@@ -16,6 +17,7 @@ module.exports = async function handler(req, res) {
     ok: true,
     version: '2.0.0-predeploy',
     checks,
+    connectors: connectorStatus(),
     voiceReady: checks.groq && checks.elevenlabs,
     memoryReady: checks.supabase,
     timestamp: new Date().toISOString(),
