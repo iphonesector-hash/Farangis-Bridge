@@ -1,452 +1,350 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
+  Animated,
   Linking,
   Pressable,
   ScrollView,
-  Share,
   StyleSheet,
   Switch,
   Text,
   TextInput,
   View,
 } from 'react-native';
-import * as Contacts from 'expo-contacts';
-import * as MediaLibrary from 'expo-media-library';
-import * as Location from 'expo-location';
-import { useCameraPermissions } from 'expo-camera';
-import * as Clipboard from 'expo-clipboard';
-import * as SecureStore from 'expo-secure-store';
-import * as Speech from 'expo-speech';
-import * as Calendar from 'expo-calendar';
-import * as Notifications from 'expo-notifications';
-import * as DocumentPicker from 'expo-document-picker';
-import * as FileSystem from 'expo-file-system/legacy';
-import * as Sharing from 'expo-sharing';
 import { Audio } from 'expo-av';
-import { DEFAULT_AI_CONFIG, answerWithInternet, planWithAI } from './src/ai';
-import { transcribeAudio } from './src/voice';
+import * as Notifications from 'expo-notifications';
+import VoiceOrb from './src/components/VoiceOrb';
+import { COLORS, SHADOW } from './src/theme';
+import {
+  getCoreConfig,
+  healthCheck,
+  saveCoreConfig,
+  sendChat,
+  submitAction,
+  transcribeViaCore,
+} from './src/services/farangisApi';
+import { speakFarangis, stopSpeaking } from './src/services/tts';
 
-const normalizeDigits = (value = '') => String(value)
-  .replace(/[۰-۹]/g, (d) => '۰۱۲۳۴۵۶۷۸۹'.indexOf(d))
-  .replace(/[٠-٩]/g, (d) => '٠١٢٣٤٥٦٧٨٩'.indexOf(d));
+const TABS = [
+  ['home', 'خانه', '⌂'],
+  ['voice', 'صدا', '◉'],
+  ['activity', 'فعالیت', '◫'],
+  ['health', 'سلامت', '✚'],
+  ['settings', 'تنظیمات', '⚙'],
+];
 
-const normalize = (value = '') => normalizeDigits(value)
-  .toLowerCase().replace(/ي/g, 'ی').replace(/ك/g, 'ک')
-  .replace(/[؟?!.,،؛:]/g, ' ').replace(/\s+/g, ' ').trim();
+const quickActions = [
+  ['customer', 'ثبت مشتری', '◎'],
+  ['route', 'مسیر', '⌖'],
+  ['reminder', 'یادآوری', '◷'],
+  ['history', 'سابقه', '≡'],
+];
 
-const birthdayText = (birthday) => {
-  if (!birthday) return '';
-  const year = birthday.year ? `${birthday.year}/` : '';
-  return `${year}${String(birthday.month || '').padStart(2, '0')}/${String(birthday.day || '').padStart(2, '0')}`;
-};
-
-const looksLive = (text) => {
-  const t = normalize(text);
-  return /(قیمت|نرخ|اخبار|خبر|آب و هوا|هواشناسی|آخرین|جدیدترین|امروز|الان).*(دلار|یورو|ارز|طلا|سکه|بورس|بیت ?کوین|اتریوم|هوا|خبر|قیمت|نتیجه|بازار)/.test(t)
-    || /(دلار|یورو|ارز|طلا|سکه|بورس|بیت ?کوین|هوا).*(امروز|الان|قیمت|نرخ)/.test(t)
-    || t.includes('آخرین خبر') || t.includes('خبر جدید');
-};
+const assistantGreeting = 'سلام، من فرنگیس هستم. آماده‌ام با صدات فرمان بگیرم و جواب فارسی بدم.';
 
 export default function App() {
-  const [status, setStatus] = useState({});
-  const [result, setResult] = useState('فرنگیس آماده است. دکمه میکروفن را بزن و حرف بزن.');
-  const [command, setCommand] = useState('');
-  const [busy, setBusy] = useState(false);
+  const [tab, setTab] = useState('home');
+  const [mode, setMode] = useState('idle');
   const [recording, setRecording] = useState(false);
-  const [voiceBusy, setVoiceBusy] = useState(false);
+  const [busy, setBusy] = useState(false);
   const [speakAnswers, setSpeakAnswers] = useState(true);
-  const [showAISettings, setShowAISettings] = useState(false);
-  const [aiKey, setAiKey] = useState('');
-  const [aiBaseUrl, setAiBaseUrl] = useState(DEFAULT_AI_CONFIG.baseUrl);
-  const [aiModel, setAiModel] = useState(DEFAULT_AI_CONFIG.model);
-  const [lastFile, setLastFile] = useState(null);
+  const [preferCloudVoice, setPreferCloudVoice] = useState(true);
+  const [command, setCommand] = useState('');
+  const [result, setResult] = useState(assistantGreeting);
+  const [history, setHistory] = useState([]);
+  const [pendingAction, setPendingAction] = useState(null);
+  const [health, setHealth] = useState(null);
+  const [coreUrl, setCoreUrl] = useState('');
+  const [deviceToken, setDeviceToken] = useState('');
+  const [debug, setDebug] = useState(false);
+  const [lastProvider, setLastProvider] = useState('—');
   const recordingRef = useRef(null);
-  const [, requestCameraPermission] = useCameraPermissions();
+  const intro = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
-    (async () => {
-      try {
-        const [key, baseUrl, model] = await Promise.all([
-          SecureStore.getItemAsync('farangis_ai_key'),
-          SecureStore.getItemAsync('farangis_ai_base_url'),
-          SecureStore.getItemAsync('farangis_ai_model'),
-        ]);
-        if (key) setAiKey(key);
-        if (baseUrl) setAiBaseUrl(baseUrl);
-        if (model) setAiModel(model);
-      } catch (_) {}
-    })();
-  }, []);
+    Animated.timing(intro, { toValue: 1, duration: 650, useNativeDriver: true }).start();
+    getCoreConfig().then((cfg) => {
+      setCoreUrl(cfg.baseUrl || '');
+      setDeviceToken(cfg.deviceToken || '');
+    }).catch(() => {});
+  }, [intro]);
 
-  const quickCommands = useMemo(() => [
-    'قیمت دلار امروز چنده؟',
-    'لوکیشن فعلیم رو روی نقشه باز کن',
-    'شماره مستانه رو پیدا کن',
-    'چه کسایی تاریخ تولد دارن؟',
-  ], []);
+  const modeLabel = useMemo(() => ({
+    idle: 'آماده',
+    listening: 'دارم گوش می‌دم',
+    thinking: 'دارم فکر می‌کنم',
+    speaking: 'دارم جواب می‌دم',
+  }[mode] || 'آماده'), [mode]);
 
-  const setAccess = (name, value) => setStatus((old) => ({ ...old, [name]: value }));
+  const addHistory = (role, text, meta = {}) => {
+    setHistory((old) => [...old.slice(-23), { id: `${Date.now()}-${Math.random()}`, role, text, at: new Date(), ...meta }]);
+  };
 
-  const say = async (text) => {
-    const output = String(text ?? '');
+  const speak = async (text) => {
+    const output = String(text || '').trim();
+    if (!output) return;
     setResult(output);
+    addHistory('assistant', output);
     if (!speakAnswers) return;
+    setMode('speaking');
     try {
-      await Speech.stop();
-      await Audio.setAudioModeAsync({ allowsRecordingIOS: false, playsInSilentModeIOS: true });
-
-      const voices = await Speech.getAvailableVoicesAsync().catch(() => []);
-      const persianVoices = (voices || []).filter((v) => /^fa(?:-|_)/i.test(String(v.language || '')));
-      const preferredFemaleNames = ['neda', 'roya', 'shadi', 'sara', 'farah', 'farnaz'];
-      const femaleVoice = persianVoices.find((v) => {
-        const label = `${v.name || ''} ${v.identifier || ''}`.toLowerCase();
-        return preferredFemaleNames.some((name) => label.includes(name));
-      });
-      const selectedVoice = femaleVoice || persianVoices[0] || null;
-
-      Speech.speak(output.replace(/\n/g, ' '), {
-        language: selectedVoice?.language || 'fa-IR',
-        voice: selectedVoice?.identifier,
-        rate: 0.9,
-        pitch: 1.04,
-        onError: (error) => setResult(`${output}\n\n⚠️ خطای پخش صدا: ${String(error)}`),
-      });
+      const info = await speakFarangis(output, { preferCloud: preferCloudVoice });
+      setLastProvider(info.provider || 'unknown');
     } catch (error) {
-      setResult(`${output}\n\n⚠️ خطای آماده‌سازی صدا: ${String(error)}`);
+      setLastProvider('failed');
+      if (debug) setResult(`${output}\n\n⚠️ TTS: ${String(error)}`);
+    } finally {
+      setMode('idle');
     }
   };
 
-  const saveAISettings = async () => {
-    await Promise.all([
-      SecureStore.setItemAsync('farangis_ai_key', aiKey.trim()),
-      SecureStore.setItemAsync('farangis_ai_base_url', aiBaseUrl.trim()),
-      SecureStore.setItemAsync('farangis_ai_model', aiModel.trim()),
-    ]);
-    setShowAISettings(false);
-    await say('🧠 تنظیمات AI ذخیره شد.');
-  };
-
-  const ensureContacts = async () => {
-    const p = await Contacts.requestPermissionsAsync();
-    const ok = p.status === 'granted'; setAccess('Contacts', ok ? 'granted' : 'denied'); return ok;
-  };
-  const ensurePhotos = async () => {
-    const p = await MediaLibrary.requestPermissionsAsync();
-    const ok = p.granted || p.status === 'granted'; setAccess('Photos', ok ? 'granted' : 'denied'); return ok;
-  };
-  const ensureLocation = async () => {
-    const p = await Location.requestForegroundPermissionsAsync();
-    const ok = p.status === 'granted'; setAccess('Location', ok ? 'granted' : 'denied'); return ok;
-  };
-  const ensureNotifications = async () => {
-    const p = await Notifications.requestPermissionsAsync();
-    const ok = p.status === 'granted'; setAccess('Notifications', ok ? 'granted' : 'denied'); return ok;
-  };
-
-  const toolContactsSummary = async () => {
-    if (!(await ensureContacts())) return 'دسترسی مخاطبین فعال نیست.';
-    const r = await Contacts.getContactsAsync({ fields: [Contacts.Fields.Name, Contacts.Fields.Birthday] });
-    const data = r.data || [];
-    return `👥 تعداد مخاطبین: ${data.length}\n🎂 دارای تاریخ تولد: ${data.filter((x) => x.birthday).length}`;
-  };
-  const toolBirthdays = async () => {
-    if (!(await ensureContacts())) return 'دسترسی مخاطبین فعال نیست.';
-    const r = await Contacts.getContactsAsync({ fields: [Contacts.Fields.Name, Contacts.Fields.Birthday] });
-    const items = (r.data || []).filter((x) => x.birthday).sort((a,b) => (a.birthday?.month||0)-(b.birthday?.month||0) || (a.birthday?.day||0)-(b.birthday?.day||0));
-    if (!items.length) return 'هیچ تاریخ تولدی در مخاطبین ثبت نشده.';
-    return `🎂 ${items.length} مخاطب دارای تاریخ تولد:\n\n${items.map((x,i)=>`${i+1}. ${x.name || 'بدون نام'} — ${birthdayText(x.birthday)}`).join('\n')}`;
-  };
-  const getContactMatches = async (query) => {
-    if (!(await ensureContacts())) return [];
-    const r = await Contacts.getContactsAsync({ fields: [Contacts.Fields.Name, Contacts.Fields.PhoneNumbers, Contacts.Fields.Emails, Contacts.Fields.Birthday] });
-    const needle = normalize(query);
-    return (r.data || []).filter((x) => normalize(x.name || '').includes(needle));
-  };
-  const toolFindContact = async (query) => {
-    const matches = await getContactMatches(query);
-    if (!matches.length) return `مخاطبی با نام «${query}» پیدا نشد.`;
-    return matches.slice(0,10).map((x) => {
-      const parts = [`👤 ${x.name || 'بدون نام'}`];
-      const phones = (x.phoneNumbers || []).map((p)=>p.number).filter(Boolean);
-      const emails = (x.emails || []).map((e)=>e.email).filter(Boolean);
-      if (phones.length) parts.push(`📞 ${phones.join(' ، ')}`);
-      if (emails.length) parts.push(`✉️ ${emails.join(' ، ')}`);
-      if (x.birthday) parts.push(`🎂 ${birthdayText(x.birthday)}`);
-      return parts.join('\n');
-    }).join('\n\n');
-  };
-  const toolCallContact = async (query) => {
-    const m = await getContactMatches(query); const phone = m[0]?.phoneNumbers?.find((p)=>p.number)?.number;
-    if (!phone) return `شماره‌ای برای «${query}» پیدا نکردم.`;
-    await Linking.openURL(`tel:${phone.replace(/\s/g,'')}`); return `📞 شماره‌گیر برای ${m[0]?.name || query} باز شد.`;
-  };
-  const toolMessageContact = async (query) => {
-    const m = await getContactMatches(query); const phone = m[0]?.phoneNumbers?.find((p)=>p.number)?.number;
-    if (!phone) return `شماره‌ای برای «${query}» پیدا نکردم.`;
-    await Linking.openURL(`sms:${phone.replace(/\s/g,'')}`); return `💬 پیام برای ${m[0]?.name || query} باز شد.`;
-  };
-  const toolPhotos = async () => {
-    if (!(await ensurePhotos())) return 'دسترسی عکس‌ها فعال نیست.';
-    const a = await MediaLibrary.getAssetsAsync({ first: 1 }); return `🖼 تعداد عکس و ویدیوی قابل مشاهده: ${a.totalCount}`;
-  };
-  const toolRecentMedia = async () => {
-    if (!(await ensurePhotos())) return 'دسترسی عکس‌ها فعال نیست.';
-    const a = await MediaLibrary.getAssetsAsync({ first: 10, sortBy: [[MediaLibrary.SortBy.creationTime, false]] });
-    return a.assets.length ? `🖼 ${a.assets.length} آیتم اخیر پیدا شد.` : 'هیچ عکس یا ویدیویی پیدا نشد.';
-  };
-  const toolLocation = async () => {
-    if (!(await ensureLocation())) return 'دسترسی موقعیت مکانی فعال نیست.';
-    const l = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-    return `📍 Latitude: ${l.coords.latitude}\nLongitude: ${l.coords.longitude}\nAccuracy: ${Math.round(l.coords.accuracy || 0)}m`;
-  };
-  const toolOpenCurrentLocation = async () => {
-    if (!(await ensureLocation())) return 'دسترسی موقعیت مکانی فعال نیست.';
-    const l = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-    await Linking.openURL(`https://maps.apple.com/?ll=${l.coords.latitude},${l.coords.longitude}`); return '🗺 موقعیت فعلی روی نقشه باز شد.';
-  };
-  const toolMapsSearch = async (q) => { await Linking.openURL(`https://maps.apple.com/?q=${encodeURIComponent(q)}`); return `🗺 «${q}» روی نقشه جستجو شد.`; };
-  const toolClipboard = async () => { const t = await Clipboard.getStringAsync(); setAccess('Clipboard','granted'); return t ? `📋 ${t}` : 'کلیپ‌بورد خالی است.'; };
-  const toolCopy = async (t) => { await Clipboard.setStringAsync(String(t)); return '📋 در کلیپ‌بورد ذخیره شد.'; };
-  const toolGoogle = async (q) => { await Linking.openURL(q ? `https://www.google.com/search?q=${encodeURIComponent(q)}` : 'https://www.google.com/'); return q ? `🔎 جستجوی «${q}» باز شد.` : 'گوگل باز شد.'; };
-  const toolInternet = async (q) => answerWithInternet({ query: q, baseUrl: aiBaseUrl, apiKey: aiKey });
-  const toolOpenUrl = async (url) => { const u = /^https?:\/\//i.test(url) ? url : `https://${url}`; await Linking.openURL(u); return `🌐 ${u} باز شد.`; };
-  const toolShare = async (t) => { await Share.share({ message: String(t) }); return '↗️ صفحه اشتراک باز شد.'; };
-  const toolSecureSave = async (k,v) => { await SecureStore.setItemAsync(`farangis_${k}`, String(v)); return `🔐 «${k}» ذخیره شد.`; };
-  const toolSecureRead = async (k) => { const v = await SecureStore.getItemAsync(`farangis_${k}`); return v ? `🔐 ${k}: ${v}` : `چیزی با نام «${k}» ندارم.`; };
-  const toolCalendarOpenCreate = async (title='رویداد جدید') => { await Calendar.createEventInCalendarAsync({ title }); return '📅 صفحه ساخت رویداد باز شد.'; };
-  const toolReminder = async (minutes, body) => {
-    if (!(await ensureNotifications())) return 'دسترسی اعلان‌ها فعال نیست.';
-    const m = Math.max(1, Number(minutes)||1);
-    await Notifications.scheduleNotificationAsync({ content: { title:'فرنگیس', body: body || 'یادآوری', sound:true }, trigger: { seconds: m*60 } });
-    return `⏰ برای ${m} دقیقه دیگر ثبت شد: ${body || 'یادآوری'}`;
-  };
-
-  const toolPickFile = async () => {
-    const picked = await DocumentPicker.getDocumentAsync({ type: '*/*', copyToCacheDirectory: true, multiple: false });
-    if (picked.canceled || !picked.assets?.[0]) return 'انتخاب فایل لغو شد.';
-    const asset = picked.assets[0]; setLastFile(asset); setAccess('Files','granted');
-    const size = asset.size ? `${Math.round(asset.size/1024)} KB` : 'نامشخص';
-    return `📁 فایل انتخاب شد:\n${asset.name}\nنوع: ${asset.mimeType || 'نامشخص'}\nحجم: ${size}`;
-  };
-  const readSelectedFile = async () => {
-    if (!lastFile?.uri) throw new Error('ابتدا یک فایل از Files انتخاب کن.');
-    if (lastFile.size && lastFile.size > 2 * 1024 * 1024) throw new Error('برای خواندن متنی، فعلاً فایل باید کمتر از ۲ مگابایت باشد.');
-    return FileSystem.readAsStringAsync(lastFile.uri);
-  };
-  const toolReadSelectedFile = async () => {
-    const text = await readSelectedFile();
-    const preview = text.length > 6000 ? `${text.slice(0,6000)}\n…` : text;
-    return `📄 ${lastFile.name}\n\n${preview}`;
-  };
-  const toolSearchSelectedFile = async (query) => {
-    const text = await readSelectedFile(); const needle = normalize(query);
-    const lines = text.split(/\r?\n/); const hits = lines.filter((line)=>normalize(line).includes(needle)).slice(0,20);
-    return hits.length ? `🔎 ${hits.length} نتیجه اول در ${lastFile.name}:\n\n${hits.join('\n')}` : `«${query}» داخل فایل انتخاب‌شده پیدا نشد.`;
-  };
-  const toolShareSelectedFile = async () => {
-    if (!lastFile?.uri) return 'ابتدا یک فایل انتخاب کن.';
-    if (!(await Sharing.isAvailableAsync())) return 'اشتراک فایل روی این دستگاه در دسترس نیست.';
-    await Sharing.shareAsync(lastFile.uri); return '📤 صفحه بازکردن/اشتراک فایل نمایش داده شد.';
-  };
-
-  const toolOpenApp = async (appName) => {
-    const n = normalize(appName);
-    if (n.includes('فایل') || n.includes('files')) return toolPickFile();
-    if (n.includes('تنظیمات') || n.includes('settings')) { await Linking.openSettings(); return '⚙️ تنظیمات باز شد.'; }
-    const schemes = [
-      [['تلگرام','telegram'],'tg://'], [['واتساپ','whatsapp'],'whatsapp://'], [['اینستاگرام','instagram'],'instagram://'],
-      [['یوتیوب','youtube'],'youtube://'], [['جیمیل','gmail'],'googlegmail://'], [['کروم','chrome'],'googlechrome://'],
-      [['نقشه','maps'],'maps://'], [['موزیک','music'],'music://'], [['اپ استور','app store','appstore'],'itms-apps://'],
-      [['شورتکات','shortcuts'],'shortcuts://'], [['نوت','notes','یادداشت'],'mobilenotes://'],
-    ];
-    const found = schemes.find(([names]) => names.some((x)=>n.includes(x)));
-    if (!found) return `برای «${appName}» آدرس بازکردن مطمئن ندارم. iOS لیست کامل برنامه‌های نصب‌شده را در اختیار اپ‌ها نمی‌گذارد.`;
-    try { await Linking.openURL(found[1]); return `📱 ${appName} باز شد.`; }
-    catch { return `نتونستم ${appName} رو باز کنم؛ ممکنه نصب نباشه یا iOS اجازه این URL Scheme رو نده.`; }
-  };
-
-  const toolRunShortcut = async (name, input='') => {
-    const url = `shortcuts://run-shortcut?name=${encodeURIComponent(name)}&input=text&text=${encodeURIComponent(input)}`;
-    try { await Linking.openURL(url); return `⚡️ شورتکات «${name}» اجرا شد.`; }
-    catch { return `شورتکات «${name}» اجرا نشد. اول باید چنین Shortcutی در برنامه Shortcuts وجود داشته باشد.`; }
-  };
-  const toolNotesOpen = async () => toolOpenApp('Notes');
-
-  const executeAITool = async (plan) => {
-    if (!plan || plan.type === 'answer') return plan?.text || 'پاسخی دریافت نشد.';
-    const a = plan.args || {};
-    switch (plan.tool) {
-      case 'contacts_summary': return toolContactsSummary(); case 'list_birthdays': return toolBirthdays();
-      case 'find_contact': return toolFindContact(a.name||''); case 'call_contact': return toolCallContact(a.name||''); case 'message_contact': return toolMessageContact(a.name||'');
-      case 'photos_count': return toolPhotos(); case 'recent_media': return toolRecentMedia();
-      case 'location': return toolLocation(); case 'open_current_location': return toolOpenCurrentLocation(); case 'maps_search': return toolMapsSearch(a.query||'');
-      case 'clipboard_read': return toolClipboard(); case 'clipboard_write': return toolCopy(a.text||'');
-      case 'google_search': return toolGoogle(a.query||''); case 'internet_search': return toolInternet(a.query||command);
-      case 'open_url': return toolOpenUrl(a.url||''); case 'open_app': return toolOpenApp(a.app||'');
-      case 'files_pick': return toolPickFile(); case 'file_read_selected': return toolReadSelectedFile(); case 'file_search_selected': return toolSearchSelectedFile(a.query||''); case 'file_share_selected': return toolShareSelectedFile();
-      case 'shortcut_run': return toolRunShortcut(a.name||'', a.input||''); case 'notes_open': return toolNotesOpen();
-      case 'share': return toolShare(a.text||''); case 'secure_save': return toolSecureSave(a.key||'item',a.value||''); case 'secure_read': return toolSecureRead(a.key||'item');
-      case 'calendar_create': return toolCalendarOpenCreate(a.title||'رویداد جدید'); case 'reminder': return toolReminder(a.minutes||1,a.body||'یادآوری');
-      default: return 'AI یک ابزار ناشناخته انتخاب کرد.';
+  const executeClientAction = async (tool, args = {}) => {
+    if (tool === 'maps.search') {
+      await Linking.openURL(`https://maps.apple.com/?q=${encodeURIComponent(args.query || '')}`);
+      return 'نقشه باز شد.';
     }
+    if (tool === 'reminder.create') {
+      const permission = await Notifications.requestPermissionsAsync();
+      if (permission.status !== 'granted') return 'دسترسی اعلان‌ها داده نشده.';
+      await Notifications.scheduleNotificationAsync({
+        content: { title: 'فرنگیس', body: args.raw || 'یادآوری', sound: true },
+        trigger: { seconds: 60 },
+      });
+      return 'یادآوری ثبت شد. فعلاً زمان پیش‌فرض یک دقیقه است تا parser زمان کامل‌تر فعال شود.';
+    }
+    return 'این فرمان برای اجرای محلی آماده نشده.';
   };
 
-  const runAIRouter = async (raw) => {
-    if (!aiKey.trim()) return 'برای فهم آزاد و اینترنت، کلید API را در تنظیمات AI وارد کن.';
-    if (looksLive(raw)) return toolInternet(raw);
-    const plan = await planWithAI({ command: raw, baseUrl: aiBaseUrl, apiKey: aiKey, model: aiModel });
-    return executeAITool(plan);
+  const resolveServerAction = async (action, confirmed = false) => {
+    const response = await submitAction({ tool: action.tool, args: action.args, confirmed });
+    if (response.requiresConfirmation) {
+      setPendingAction({ ...response.action, confirmationText: response.confirmationText });
+      setResult(response.confirmationText);
+      return;
+    }
+    const payload = response.result || {};
+    if (payload.clientAction) {
+      await speak(await executeClientAction(payload.tool, payload.args));
+      return;
+    }
+    if (payload.queued) {
+      await speak('این فرمان در صف امن ذخیره شد و بعد از آماده شدن اتصال مقصد قابل ارسال است.');
+      return;
+    }
+    await speak(payload.message || 'فرمان با موفقیت انجام شد.');
   };
 
-  const testCamera = async () => { const p = await requestCameraPermission(); setAccess('Camera', p.granted ? 'granted':'denied'); await say(p.granted ? '📷 دوربین فعال است.' : 'دسترسی دوربین داده نشد.'); };
-  const testMicrophone = async () => { const p = await Audio.requestPermissionsAsync(); const ok = p.status==='granted'; setAccess('Microphone',ok?'granted':'denied'); await say(ok?'🎙 میکروفن فعال است.':'دسترسی میکروفن داده نشد.'); };
-
-  const runCommand = async (rawCommand = command) => {
-    const raw = String(rawCommand || '').trim(); if (!raw) return;
-    const text = normalize(raw); setCommand(raw); setBusy(true); setResult('در حال انجام...');
+  const askFarangis = async (textInput = command) => {
+    const text = String(textInput || '').trim();
+    if (!text || busy) return;
+    setBusy(true);
+    setMode('thinking');
+    setCommand(text);
+    addHistory('user', text);
     try {
-      let output;
-      const reminder = text.match(/یادآوری\s+(\d+)\s*دقیقه\s*(?:دیگه|دیگر)?\s*(.*)/);
-      const call = text.match(/(?:زنگ بزن به|تماس بگیر با|تماس با)\s+(.+)/);
-      const sms = text.match(/(?:پیام بده به|اس ام اس به|sms به)\s+(.+)/);
-      if (reminder) output = await toolReminder(reminder[1], reminder[2]);
-      else if (call) output = await toolCallContact(call[1].trim());
-      else if (sms) output = await toolMessageContact(sms[1].trim());
-      else if (text.includes('فایل') && (text.includes('باز کن') || text.includes('انتخاب'))) output = await toolPickFile();
-      else if (text.includes('فایل انتخاب') && text.includes('بخون')) output = await toolReadSelectedFile();
-      else if (text.startsWith('برنامه ') && text.includes('باز کن')) output = await toolOpenApp(raw.replace(/^برنامه\s+/i,'').replace(/رو?\s*باز کن.*$/i,'').trim());
-      else if (looksLive(raw)) output = await toolInternet(raw);
-      else output = await runAIRouter(raw);
-      await say(output);
-    } catch (error) { await say(`❌ خطا:\n${String(error)}`); }
-    finally { setBusy(false); }
+      const context = history.slice(-6).map((x) => ({ role: x.role, content: x.text }));
+      const response = await sendChat({ text, context, mode: 'assistant' });
+      if (response.type === 'action' && response.action) {
+        setResult(response.text || 'فرمان آماده اجراست.');
+        await resolveServerAction(response.action, false);
+      } else {
+        await speak(response.text || 'پاسخی دریافت نشد.');
+      }
+    } catch (error) {
+      setMode('idle');
+      const message = `ارتباط با هسته فرنگیس برقرار نشد: ${error.message || String(error)}`;
+      setResult(message);
+      addHistory('assistant', message, { error: true });
+    } finally {
+      setBusy(false);
+    }
   };
 
   const startVoice = async () => {
-    if (!aiKey.trim()) {
-      await say('برای فرمان صوتی، اول Groq API Key را در تنظیمات AI ذخیره کن.');
+    if (busy) return;
+    await stopSpeaking().catch(() => {});
+    const permission = await Audio.requestPermissionsAsync();
+    if (permission.status !== 'granted') {
+      Alert.alert('میکروفن', 'برای صحبت با فرنگیس دسترسی میکروفن لازم است.');
       return;
     }
-    try {
-      await Speech.stop();
-      const p = await Audio.requestPermissionsAsync();
-      if (p.status !== 'granted') {
-        setAccess('Microphone','denied');
-        await say('دسترسی میکروفن داده نشد.');
-        return;
-      }
-      setAccess('Microphone','granted');
-      await Audio.setAudioModeAsync({ allowsRecordingIOS: true, playsInSilentModeIOS: true });
-      const created = await Audio.Recording.createAsync(Audio.RecordingOptionsPresets.HIGH_QUALITY);
-      recordingRef.current = created.recording;
-      setRecording(true);
-      setResult('🎙 دارم گوش می‌دم... حرف بزن، بعد دوباره میکروفن رو بزن.');
-    } catch (error) {
-      recordingRef.current = null;
-      setRecording(false);
-      await say(`❌ شروع ضبط نشد:\n${String(error)}`);
-    }
+    await Audio.setAudioModeAsync({ allowsRecordingIOS: true, playsInSilentModeIOS: true });
+    const created = await Audio.Recording.createAsync(Audio.RecordingOptionsPresets.HIGH_QUALITY);
+    recordingRef.current = created.recording;
+    setRecording(true);
+    setMode('listening');
+    setResult('دارم گوش می‌دم… وقتی حرفت تموم شد دوباره دکمه رو بزن.');
   };
 
   const stopVoice = async () => {
     const active = recordingRef.current;
     if (!active) return;
-    setVoiceBusy(true);
     setRecording(false);
-    setResult('🧠 دارم صدات رو می‌فهمم...');
+    setBusy(true);
+    setMode('thinking');
     try {
       await active.stopAndUnloadAsync();
       const uri = active.getURI();
       recordingRef.current = null;
       await Audio.setAudioModeAsync({ allowsRecordingIOS: false, playsInSilentModeIOS: true });
-      const transcript = await transcribeAudio({ uri, apiKey: aiKey.trim() });
-      setCommand(transcript);
-      setResult(`🎤 شنیدم: «${transcript}»`);
-      await runCommand(transcript);
+      const text = await transcribeViaCore({ uri });
+      if (!text) throw new Error('متنی از صدا استخراج نشد.');
+      setCommand(text);
+      setBusy(false);
+      await askFarangis(text);
     } catch (error) {
       recordingRef.current = null;
-      await Audio.setAudioModeAsync({ allowsRecordingIOS: false, playsInSilentModeIOS: true }).catch(()=>{});
-      await say(`❌ تبدیل صدا به متن انجام نشد:\n${String(error)}`);
-    } finally {
-      setVoiceBusy(false);
+      await Audio.setAudioModeAsync({ allowsRecordingIOS: false, playsInSilentModeIOS: true }).catch(() => {});
+      setResult(`تبدیل صدا انجام نشد: ${error.message || String(error)}`);
+      setMode('idle');
+      setBusy(false);
     }
   };
 
-  const toggleVoice = async () => {
-    if (voiceBusy || busy) return;
-    if (recording) await stopVoice();
-    else await startVoice();
+  const toggleVoice = () => recording ? stopVoice() : startVoice();
+
+  const runHealth = async () => {
+    setBusy(true);
+    try {
+      const data = await healthCheck();
+      setHealth(data);
+      setResult(data.voiceReady ? 'هسته صوتی فرنگیس آماده است.' : 'هسته بالا است، ولی بعضی سرویس‌های صوتی هنوز تنظیم نشده‌اند.');
+    } catch (error) {
+      setHealth({ ok: false, error: String(error) });
+      setResult(`Health Check ناموفق بود: ${error.message || String(error)}`);
+    } finally { setBusy(false); }
   };
 
-  const permissionItems = [
-    ['Contacts','👥 Contacts',async()=>say(await toolContactsSummary())], ['Photos','🖼 Photos',async()=>say(await toolPhotos())],
-    ['Location','📍 Location',async()=>say(await toolLocation())], ['Files','📁 Files',async()=>say(await toolPickFile())],
-    ['Camera','📷 Camera',testCamera], ['Microphone','🎙 Microphone',testMicrophone], ['Clipboard','📋 Clipboard',async()=>say(await toolClipboard())],
-    ['Notifications','🔔 Notifications',async()=>say((await ensureNotifications())?'🔔 اعلان‌ها فعال هستند.':'دسترسی اعلان‌ها داده نشد.')],
-  ];
-  const icon = (name) => status[name]==='granted'?'✅':status[name]==='denied'?'❌':'⚪️';
+  const saveSettings = async () => {
+    await saveCoreConfig({ baseUrl: coreUrl, deviceToken });
+    setResult('تنظیمات هسته فرنگیس ذخیره شد.');
+    await runHealth();
+  };
 
-  return (
-    <ScrollView style={styles.page} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-      <Text style={styles.logo}>🧠</Text><Text style={styles.title}>فرنگیس</Text><Text style={styles.subtitle}>Farangis Personal Bridge 1.6 Voice</Text>
+  const runQuickAction = async (id) => {
+    if (id === 'customer') return askFarangis('می‌خوام یک سرویس یا مبلغ برای مشتری ثبت کنم');
+    if (id === 'route') return askFarangis('مسیر مقصد بعدی رو روی نقشه باز کن');
+    if (id === 'reminder') return askFarangis('یک یادآوری برای من بساز');
+    if (id === 'history') { setTab('activity'); return; }
+  };
 
-      <View style={styles.voiceCard}>
-        <Text style={styles.voiceHeroTitle}>{recording ? '🎙 دارم گوش می‌دم...' : voiceBusy ? '🧠 دارم می‌فهمم...' : '🎤 با فرنگیس حرف بزن'}</Text>
-        <Text style={styles.voiceHeroHint}>{recording ? 'حرفت که تموم شد دوباره دکمه رو بزن.' : 'یک بار بزن، حرف بزن، دوباره بزن؛ بقیه کار خودکاره.'}</Text>
-        <Pressable style={[styles.micButton, recording && styles.micButtonRecording, (voiceBusy||busy) && styles.disabledButton]} disabled={voiceBusy||busy} onPress={toggleVoice}>
-          <Text style={styles.micIcon}>{recording ? '⏹' : '🎙'}</Text>
-          <Text style={styles.micText}>{recording ? 'پایان و اجرا' : voiceBusy ? 'در حال پردازش...' : 'شروع صحبت'}</Text>
+  const renderHome = () => (
+    <>
+      <Animated.View style={{ opacity: intro, transform: [{ translateY: intro.interpolate({ inputRange: [0,1], outputRange: [18,0] }) }] }}>
+        <View style={styles.brandBlock}>
+          <Text style={styles.brand}>FARANGIS</Text>
+          <Text style={styles.brandFa}>فرنگیس</Text>
+          <Text style={styles.credit}>MADE BY SECTOR TEAM</Text>
+        </View>
+      </Animated.View>
+
+      <View style={styles.heroCard}>
+        <VoiceOrb mode={mode} />
+        <Text style={styles.modeText}>{modeLabel}</Text>
+        <Text style={styles.heroHint}>دستیار شخصی فارسی، آماده برای صدا، حافظه و اجرای فرمان</Text>
+        <Pressable style={[styles.voiceButton, recording && styles.voiceButtonStop]} onPress={toggleVoice} disabled={busy && !recording}>
+          <Text style={styles.voiceButtonIcon}>{recording ? '■' : '●'}</Text>
+          <Text style={styles.voiceButtonText}>{recording ? 'پایان صحبت' : 'با فرنگیس حرف بزن'}</Text>
         </Pressable>
       </View>
 
-      <View style={styles.commandCard}>
-        <Text style={styles.sectionTitle}>فرمان متنی</Text>
-        <TextInput value={command} onChangeText={setCommand} placeholder="مثلاً: قیمت دلار امروز چنده؟" placeholderTextColor="#687083" style={styles.input} multiline textAlign="right" />
-        <View style={styles.row}>
-          <Pressable style={[styles.primaryButton,busy&&styles.disabledButton]} disabled={busy} onPress={()=>runCommand()}><Text style={styles.primaryButtonText}>{busy?'در حال اجرا...':'اجرا کن'}</Text></Pressable>
-          <Pressable style={styles.clearButton} onPress={()=>{setCommand('');setResult('فرنگیس آماده است.');}}><Text style={styles.clearButtonText}>پاک کن</Text></Pressable>
-        </View>
-        <View style={styles.voiceRow}><View style={{flex:1}}><Text style={styles.voiceTitle}>پاسخ صوتی فرنگیس</Text><Text style={styles.voiceHint}>بعد از فهم فرمان، جواب را با صدای فارسی می‌خواند.</Text></View><Switch value={speakAnswers} onValueChange={setSpeakAnswers}/></View>
-        <View style={styles.quickWrap}>{quickCommands.map((x)=><Pressable key={x} style={styles.quickButton} onPress={()=>runCommand(x)}><Text style={styles.quickText}>{x}</Text></Pressable>)}</View>
+      <View style={styles.resultCard}>
+        <View style={styles.sectionRow}><Text style={styles.sectionTitle}>پاسخ فرنگیس</Text><Text style={styles.badge}>{lastProvider}</Text></View>
+        <Text style={styles.resultText}>{result}</Text>
+        {pendingAction && <View style={styles.confirmBox}>
+          <Text style={styles.confirmText}>{pendingAction.confirmationText}</Text>
+          <View style={styles.buttonRow}>
+            <Pressable style={styles.confirmButton} onPress={() => { const a = pendingAction; setPendingAction(null); resolveServerAction(a, true); }}><Text style={styles.confirmButtonText}>تأیید</Text></Pressable>
+            <Pressable style={styles.cancelButton} onPress={() => { setPendingAction(null); setResult('عملیات لغو شد.'); }}><Text style={styles.cancelText}>لغو</Text></Pressable>
+          </View>
+        </View>}
       </View>
 
-      <View style={styles.resultBox}><View style={styles.resultHeader}><Text style={styles.sectionTitle}>خروجی فرنگیس</Text><Pressable onPress={()=>toolShare(result)}><Text style={styles.shareText}>اشتراک</Text></Pressable></View><Text selectable style={styles.resultText}>{result}</Text></View>
+      <Text style={styles.sectionHeader}>فرمان‌های سریع</Text>
+      <View style={styles.quickGrid}>{quickActions.map(([id, label, icon]) => (
+        <Pressable key={id} style={styles.quickCard} onPress={() => runQuickAction(id)}>
+          <Text style={styles.quickIcon}>{icon}</Text><Text style={styles.quickLabel}>{label}</Text>
+        </Pressable>
+      ))}</View>
+    </>
+  );
 
-      {lastFile && <View style={styles.fileBox}><Text style={styles.sectionTitle}>فایل انتخاب‌شده</Text><Text style={styles.fileText}>{lastFile.name}</Text><View style={styles.row}><Pressable style={styles.smallButton} onPress={()=>toolReadSelectedFile().then(say).catch((e)=>say(String(e)))}><Text style={styles.smallButtonText}>بخوان</Text></Pressable><Pressable style={styles.smallButton} onPress={()=>toolShareSelectedFile().then(say)}><Text style={styles.smallButtonText}>باز/اشتراک</Text></Pressable></View></View>}
+  const renderVoice = () => (
+    <>
+      <Text style={styles.screenTitle}>مکالمه صوتی</Text>
+      <View style={styles.centerCard}><VoiceOrb mode={mode} /><Text style={styles.modeText}>{modeLabel}</Text></View>
+      <View style={styles.inputCard}>
+        <TextInput value={command} onChangeText={setCommand} multiline textAlign="right" placeholder="مثلاً: از صادقی هشتصد و پنجاه هزار تومان گرفتم" placeholderTextColor="#697395" style={styles.input}/>
+        <View style={styles.buttonRow}>
+          <Pressable style={styles.primaryButton} onPress={() => askFarangis()} disabled={busy}><Text style={styles.primaryText}>{busy ? 'در حال پردازش…' : 'ارسال'}</Text></Pressable>
+          <Pressable style={styles.secondaryButton} onPress={toggleVoice}><Text style={styles.secondaryText}>{recording ? 'توقف' : 'میکروفن'}</Text></Pressable>
+        </View>
+      </View>
+      <View style={styles.settingRow}><View><Text style={styles.settingTitle}>پاسخ صوتی</Text><Text style={styles.settingHint}>پاسخ فارسی را با صدا پخش کن</Text></View><Switch value={speakAnswers} onValueChange={setSpeakAnswers}/></View>
+      <View style={styles.settingRow}><View><Text style={styles.settingTitle}>صدای زنانه ابری</Text><Text style={styles.settingHint}>ElevenLabs؛ در خطا، صدای فارسی iOS</Text></View><Switch value={preferCloudVoice} onValueChange={setPreferCloudVoice}/></View>
+    </>
+  );
 
-      <Pressable style={styles.aiHeader} onPress={()=>setShowAISettings(!showAISettings)}><Text style={styles.sectionTitle}>🧠 تنظیمات AI و اینترنت</Text><Text style={styles.arrow}>›</Text></Pressable>
-      {showAISettings && <View style={styles.settingsBox}>
-        <Text style={styles.settingsHint}>همین Groq API Key برای فهم فرمان، اینترنت و تبدیل صدای فارسی به متن استفاده می‌شود و فقط در Secure Store گوشی ذخیره می‌شود.</Text>
-        <TextInput value={aiKey} onChangeText={setAiKey} placeholder="Groq API Key" placeholderTextColor="#687083" secureTextEntry style={styles.settingsInput}/>
-        <TextInput value={aiBaseUrl} onChangeText={setAiBaseUrl} placeholder="API URL" placeholderTextColor="#687083" autoCapitalize="none" style={styles.settingsInput}/>
-        <TextInput value={aiModel} onChangeText={setAiModel} placeholder="Planner model" placeholderTextColor="#687083" autoCapitalize="none" style={styles.settingsInput}/>
-        <Pressable style={styles.primaryButton} onPress={()=>saveAISettings().catch((e)=>say(String(e)))}><Text style={styles.primaryButtonText}>ذخیره تنظیمات</Text></Pressable>
+  const renderActivity = () => (
+    <>
+      <Text style={styles.screenTitle}>فعالیت‌های اخیر</Text>
+      {!history.length ? <View style={styles.emptyCard}><Text style={styles.emptyText}>هنوز فعالیتی ثبت نشده.</Text></View> : history.slice().reverse().map((item) => (
+        <View key={item.id} style={[styles.historyCard, item.role === 'user' ? styles.userHistory : styles.assistantHistory]}>
+          <Text style={styles.historyRole}>{item.role === 'user' ? 'شما' : 'فرنگیس'}</Text>
+          <Text style={styles.historyText}>{item.text}</Text>
+          <Text style={styles.historyTime}>{item.at.toLocaleTimeString('fa-IR', { hour: '2-digit', minute: '2-digit' })}</Text>
+        </View>
+      ))}
+    </>
+  );
+
+  const renderHealth = () => (
+    <>
+      <Text style={styles.screenTitle}>سلامت سیستم</Text>
+      <Pressable style={styles.healthHero} onPress={runHealth}><Text style={styles.healthHeroIcon}>✚</Text><View><Text style={styles.healthHeroTitle}>فرنگیس خودتو چک کن</Text><Text style={styles.healthHeroHint}>Core، Groq، ElevenLabs، Supabase و AquaGold</Text></View></Pressable>
+      {health && <View style={styles.healthCard}>
+        {health.checks ? Object.entries(health.checks).map(([key, value]) => <View key={key} style={styles.healthRow}><Text style={styles.healthName}>{key}</Text><Text style={[styles.healthStatus, { color: value ? COLORS.success : COLORS.warning }]}>{value ? 'ONLINE' : 'NEEDS CONFIG'}</Text></View>) : <Text style={styles.resultText}>{health.error || 'وضعیت نامشخص'}</Text>}
       </View>}
+    </>
+  );
 
-      <Text style={[styles.sectionTitle,{marginTop:22,marginBottom:10}]}>دسترسی‌ها</Text>
-      <View style={styles.card}>{permissionItems.map(([id,title,action])=><Pressable key={id} style={styles.permissionButton} onPress={action}><Text style={styles.permissionText}>{icon(id)} {title}</Text><Text style={styles.arrow}>›</Text></Pressable>)}</View>
+  const renderSettings = () => (
+    <>
+      <Text style={styles.screenTitle}>تنظیمات</Text>
+      <View style={styles.settingsCard}>
+        <Text style={styles.fieldLabel}>Farangis Core URL</Text>
+        <TextInput value={coreUrl} onChangeText={setCoreUrl} autoCapitalize="none" placeholder="https://farangis.vercel.app" placeholderTextColor="#66708E" style={styles.input}/>
+        <Text style={styles.fieldLabel}>Device Token</Text>
+        <TextInput value={deviceToken} onChangeText={setDeviceToken} secureTextEntry autoCapitalize="none" placeholder="اختیاری تا زمان فعال شدن امنیت سرور" placeholderTextColor="#66708E" style={styles.input}/>
+        <View style={styles.settingRow}><View><Text style={styles.settingTitle}>Debug Mode</Text><Text style={styles.settingHint}>نمایش خطاهای فنی برای تست</Text></View><Switch value={debug} onValueChange={setDebug}/></View>
+        <Pressable style={styles.primaryButton} onPress={saveSettings}><Text style={styles.primaryText}>ذخیره و تست اتصال</Text></Pressable>
+      </View>
+      <View style={styles.infoCard}><Text style={styles.infoTitle}>Wake Phrase</Text><Text style={styles.infoText}>پل «هی فرنگیس» برای Vocal Shortcuts/iOS بعد از پایدار شدن نسخه صوتی فعال می‌شود. هسته Vercel از همین حالا برای اتصال آن آماده طراحی شده.</Text></View>
+    </>
+  );
 
-      <Pressable style={styles.infoButton} onPress={()=>Alert.alert('مرحله بعد','اول نسخه صوتی را عملیاتی و پایدار می‌کنیم. Wake phrase «هی فرنگیس» و پل‌های Shortcuts را بعد از تست این نسخه اضافه می‌کنیم.')}><Text style={styles.infoButtonText}>نقشه راه فرنگیس صوتی</Text></Pressable>
-    </ScrollView>
+  const content = tab === 'home' ? renderHome() : tab === 'voice' ? renderVoice() : tab === 'activity' ? renderActivity() : tab === 'health' ? renderHealth() : renderSettings();
+
+  return (
+    <View style={styles.root}>
+      <ScrollView style={styles.page} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">{content}</ScrollView>
+      <View style={styles.nav}>{TABS.map(([id, label, icon]) => <Pressable key={id} style={styles.navItem} onPress={() => setTab(id)}><Text style={[styles.navIcon, tab === id && styles.navActive]}>{icon}</Text><Text style={[styles.navLabel, tab === id && styles.navActive]}>{label}</Text></Pressable>)}</View>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  page:{flex:1,backgroundColor:'#0B0D12'}, content:{paddingTop:56,paddingHorizontal:16,paddingBottom:80}, logo:{textAlign:'center',fontSize:54},
-  title:{color:'#FFF',textAlign:'center',fontSize:31,fontWeight:'900',marginTop:4}, subtitle:{color:'#8D96A8',textAlign:'center',marginTop:4,marginBottom:20},
-  sectionTitle:{color:'#FFF',fontSize:16,fontWeight:'800',textAlign:'right'},
-  voiceCard:{backgroundColor:'#151922',borderRadius:24,padding:18,marginBottom:16,alignItems:'center'},voiceHeroTitle:{color:'#FFF',fontSize:20,fontWeight:'900',textAlign:'center'},voiceHeroHint:{color:'#8D96A8',fontSize:13,lineHeight:20,textAlign:'center',marginTop:6},
-  micButton:{marginTop:16,minWidth:220,backgroundColor:'#4B66F0',borderRadius:24,paddingVertical:16,paddingHorizontal:22,alignItems:'center'},micButtonRecording:{backgroundColor:'#B23A48'},micIcon:{fontSize:30},micText:{color:'#FFF',fontWeight:'900',fontSize:15,marginTop:5},
-  commandCard:{backgroundColor:'#151922',borderRadius:24,padding:16},
-  input:{minHeight:86,backgroundColor:'#0E1118',borderWidth:1,borderColor:'#2A3140',borderRadius:17,color:'#FFF',fontSize:16,padding:14,marginTop:12},
-  row:{flexDirection:'row',gap:10,marginTop:12}, primaryButton:{flex:1,backgroundColor:'#4B66F0',borderRadius:15,paddingVertical:14,alignItems:'center'},
-  disabledButton:{opacity:.55},primaryButtonText:{color:'#FFF',fontWeight:'900'},clearButton:{backgroundColor:'#242A35',borderRadius:15,paddingVertical:14,paddingHorizontal:18,alignItems:'center'},clearButtonText:{color:'#D9DEEA',fontWeight:'800'},
-  voiceRow:{flexDirection:'row',alignItems:'center',gap:12,marginTop:16},voiceTitle:{color:'#F4F6FB',textAlign:'right',fontWeight:'700'},voiceHint:{color:'#7E879A',textAlign:'right',fontSize:12,marginTop:3},
-  quickWrap:{flexDirection:'row',flexWrap:'wrap',gap:8,marginTop:16,justifyContent:'flex-end'},quickButton:{backgroundColor:'#202631',borderRadius:14,paddingHorizontal:11,paddingVertical:9},quickText:{color:'#C9D0DE',fontSize:12},
-  resultBox:{backgroundColor:'#151922',borderRadius:24,padding:16,marginTop:16},resultHeader:{flexDirection:'row',justifyContent:'space-between',alignItems:'center'},shareText:{color:'#8596FF',fontWeight:'700'},resultText:{color:'#FFF',fontSize:15,lineHeight:25,textAlign:'right',marginTop:12},
-  fileBox:{backgroundColor:'#151922',borderRadius:20,padding:16,marginTop:16},fileText:{color:'#D9DEEA',textAlign:'right',marginTop:8},smallButton:{flex:1,backgroundColor:'#242A35',borderRadius:13,paddingVertical:11,alignItems:'center'},smallButtonText:{color:'#FFF',fontWeight:'700'},
-  aiHeader:{marginTop:16,backgroundColor:'#151922',borderRadius:18,padding:16,flexDirection:'row',justifyContent:'space-between',alignItems:'center'},settingsBox:{backgroundColor:'#151922',borderRadius:18,padding:16,marginTop:8},settingsHint:{color:'#8D96A8',fontSize:12,lineHeight:20,textAlign:'right',marginBottom:10},settingsInput:{backgroundColor:'#0E1118',borderRadius:14,color:'#FFF',padding:12,marginBottom:10,borderWidth:1,borderColor:'#2A3140'},
-  card:{backgroundColor:'#151922',borderRadius:22,overflow:'hidden'},permissionButton:{minHeight:60,paddingHorizontal:16,borderBottomWidth:1,borderBottomColor:'#252A35',flexDirection:'row',alignItems:'center',justifyContent:'space-between'},permissionText:{color:'#FFF',fontSize:15,fontWeight:'650'},arrow:{color:'#697386',fontSize:28},
-  infoButton:{marginTop:16,backgroundColor:'#1D222D',borderRadius:16,paddingVertical:14,alignItems:'center'},infoButtonText:{color:'#D9DEEA',fontWeight:'700'},
+  root:{flex:1,backgroundColor:COLORS.bg}, page:{flex:1}, content:{paddingTop:54,paddingHorizontal:16,paddingBottom:116},
+  brandBlock:{alignItems:'center',marginBottom:22},brand:{color:'#fff',fontSize:27,fontWeight:'900',letterSpacing:7},brandFa:{color:'#AEB8D8',fontSize:15,fontWeight:'800',marginTop:3},credit:{color:'#596382',fontSize:7,fontWeight:'800',letterSpacing:2.4,marginTop:4},
+  heroCard:{backgroundColor:COLORS.surface,borderRadius:32,padding:22,alignItems:'center',borderWidth:1,borderColor:COLORS.border,...SHADOW},modeText:{color:'#fff',fontSize:19,fontWeight:'900',marginTop:6},heroHint:{color:COLORS.muted,fontSize:12,lineHeight:19,textAlign:'center',marginTop:7,maxWidth:290},
+  voiceButton:{marginTop:20,minWidth:225,backgroundColor:COLORS.primary,borderRadius:20,paddingVertical:15,paddingHorizontal:24,flexDirection:'row',justifyContent:'center',gap:9,alignItems:'center'},voiceButtonStop:{backgroundColor:COLORS.danger},voiceButtonIcon:{color:'#fff',fontSize:15},voiceButtonText:{color:'#fff',fontWeight:'900',fontSize:15},
+  resultCard:{marginTop:14,backgroundColor:COLORS.surface,borderRadius:24,padding:17,borderWidth:1,borderColor:COLORS.border},sectionRow:{flexDirection:'row',alignItems:'center',justifyContent:'space-between'},sectionTitle:{color:'#fff',fontWeight:'900',fontSize:15},badge:{color:COLORS.primary2,backgroundColor:'#101D32',fontSize:10,fontWeight:'800',paddingHorizontal:9,paddingVertical:5,borderRadius:10},resultText:{color:'#E9EDFA',fontSize:15,lineHeight:25,textAlign:'right',marginTop:12},
+  confirmBox:{marginTop:14,backgroundColor:'#1A203A',borderRadius:16,padding:13},confirmText:{color:'#fff',textAlign:'right',lineHeight:22,fontWeight:'700'},buttonRow:{flexDirection:'row',gap:10,marginTop:12},confirmButton:{flex:1,backgroundColor:COLORS.success,borderRadius:13,paddingVertical:12,alignItems:'center'},confirmButtonText:{color:'#04140E',fontWeight:'900'},cancelButton:{paddingHorizontal:19,borderRadius:13,backgroundColor:'#272E48',justifyContent:'center'},cancelText:{color:'#D7DDF2',fontWeight:'800'},
+  sectionHeader:{color:'#fff',fontSize:16,fontWeight:'900',textAlign:'right',marginTop:22,marginBottom:11},quickGrid:{flexDirection:'row',flexWrap:'wrap',gap:10},quickCard:{width:'48.5%',backgroundColor:COLORS.surface,borderRadius:20,padding:17,borderWidth:1,borderColor:COLORS.border},quickIcon:{color:COLORS.primary2,fontSize:25,fontWeight:'900'},quickLabel:{color:'#fff',fontSize:14,fontWeight:'800',textAlign:'right',marginTop:17},
+  screenTitle:{color:'#fff',fontSize:26,fontWeight:'900',textAlign:'right',marginBottom:16},centerCard:{backgroundColor:COLORS.surface,borderRadius:28,padding:18,alignItems:'center',borderWidth:1,borderColor:COLORS.border},inputCard:{backgroundColor:COLORS.surface,borderRadius:24,padding:15,marginTop:14,borderWidth:1,borderColor:COLORS.border},input:{minHeight:64,backgroundColor:'#090D20',borderRadius:16,borderWidth:1,borderColor:'#232C4D',color:'#fff',fontSize:15,padding:13,textAlignVertical:'top'},primaryButton:{flex:1,backgroundColor:COLORS.primary,borderRadius:14,paddingVertical:13,alignItems:'center',marginTop:12},primaryText:{color:'#fff',fontWeight:'900'},secondaryButton:{paddingHorizontal:18,backgroundColor:'#202844',borderRadius:14,paddingVertical:13,alignItems:'center',marginTop:12},secondaryText:{color:'#DDE4FA',fontWeight:'800'},
+  settingRow:{marginTop:12,backgroundColor:COLORS.surface,borderRadius:18,padding:14,flexDirection:'row',alignItems:'center',justifyContent:'space-between',gap:12,borderWidth:1,borderColor:COLORS.border},settingTitle:{color:'#fff',fontWeight:'800',textAlign:'right'},settingHint:{color:COLORS.muted,fontSize:11,marginTop:3,textAlign:'right'},
+  emptyCard:{backgroundColor:COLORS.surface,borderRadius:20,padding:24,alignItems:'center'},emptyText:{color:COLORS.muted},historyCard:{borderRadius:18,padding:14,marginBottom:9,borderWidth:1},userHistory:{backgroundColor:'#181B3D',borderColor:'#343970'},assistantHistory:{backgroundColor:COLORS.surface,borderColor:COLORS.border},historyRole:{color:COLORS.primary2,fontSize:11,fontWeight:'900',textAlign:'right'},historyText:{color:'#EFF2FC',lineHeight:23,textAlign:'right',marginTop:6},historyTime:{color:'#596382',fontSize:9,marginTop:8},
+  healthHero:{backgroundColor:COLORS.surface,borderRadius:24,padding:18,flexDirection:'row',alignItems:'center',gap:14,borderWidth:1,borderColor:COLORS.border},healthHeroIcon:{fontSize:34,color:COLORS.success},healthHeroTitle:{color:'#fff',fontWeight:'900',fontSize:16,textAlign:'right'},healthHeroHint:{color:COLORS.muted,fontSize:11,marginTop:4,textAlign:'right'},healthCard:{backgroundColor:COLORS.surface,borderRadius:20,padding:15,marginTop:14},healthRow:{flexDirection:'row',justifyContent:'space-between',alignItems:'center',paddingVertical:11,borderBottomWidth:1,borderBottomColor:COLORS.border},healthName:{color:'#D9DFF2',fontWeight:'700'},healthStatus:{fontSize:10,fontWeight:'900'},
+  settingsCard:{backgroundColor:COLORS.surface,borderRadius:24,padding:16,borderWidth:1,borderColor:COLORS.border},fieldLabel:{color:'#AEB8D8',fontSize:11,fontWeight:'800',textAlign:'right',marginBottom:6,marginTop:12},infoCard:{backgroundColor:'#0D1930',borderRadius:20,padding:16,marginTop:14,borderWidth:1,borderColor:'#18335A'},infoTitle:{color:COLORS.primary2,fontWeight:'900',textAlign:'right'},infoText:{color:'#B9C5DE',lineHeight:22,fontSize:12,textAlign:'right',marginTop:7},
+  nav:{position:'absolute',left:12,right:12,bottom:14,height:72,backgroundColor:'rgba(14,19,40,.96)',borderRadius:24,borderWidth:1,borderColor:COLORS.border,flexDirection:'row',alignItems:'center',justifyContent:'space-around',paddingHorizontal:6,...SHADOW},navItem:{alignItems:'center',justifyContent:'center',minWidth:52},navIcon:{color:'#697395',fontSize:20,fontWeight:'900'},navLabel:{color:'#697395',fontSize:9,fontWeight:'700',marginTop:4},navActive:{color:COLORS.primary2},
 });
