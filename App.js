@@ -94,8 +94,27 @@ export default function App() {
     if (!speakAnswers) return;
     try {
       await Speech.stop();
-      Speech.speak(output.replace(/\n/g, ' '), { language: 'fa-IR', rate: 0.92 });
-    } catch (_) {}
+      await Audio.setAudioModeAsync({ allowsRecordingIOS: false, playsInSilentModeIOS: true });
+
+      const voices = await Speech.getAvailableVoicesAsync().catch(() => []);
+      const persianVoices = (voices || []).filter((v) => /^fa(?:-|_)/i.test(String(v.language || '')));
+      const preferredFemaleNames = ['neda', 'roya', 'shadi', 'sara', 'farah', 'farnaz'];
+      const femaleVoice = persianVoices.find((v) => {
+        const label = `${v.name || ''} ${v.identifier || ''}`.toLowerCase();
+        return preferredFemaleNames.some((name) => label.includes(name));
+      });
+      const selectedVoice = femaleVoice || persianVoices[0] || null;
+
+      Speech.speak(output.replace(/\n/g, ' '), {
+        language: selectedVoice?.language || 'fa-IR',
+        voice: selectedVoice?.identifier,
+        rate: 0.9,
+        pitch: 1.04,
+        onError: (error) => setResult(`${output}\n\n⚠️ خطای پخش صدا: ${String(error)}`),
+      });
+    } catch (error) {
+      setResult(`${output}\n\n⚠️ خطای آماده‌سازی صدا: ${String(error)}`);
+    }
   };
 
   const saveAISettings = async () => {
