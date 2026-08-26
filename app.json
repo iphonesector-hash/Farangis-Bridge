@@ -6,6 +6,7 @@
     "orientation": "portrait",
     "userInterfaceStyle": "dark",
     "ios": {
+      "bundleIdentifier": "com.isector.farangisbridge",
       "supportsTablet": false,
       "infoPlist": {
         "NSContactsUsageDescription": "Farangis uses contacts only for commands you request.",
