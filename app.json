@@ -5,6 +5,11 @@
     "version": "1.6.0",
     "orientation": "portrait",
     "userInterfaceStyle": "dark",
+    "extra": {
+      "eas": {
+        "projectId": "62bdc635-7db0-4108-ba5e-0228ee0a018e"
+      }
+    },
     "ios": {
       "bundleIdentifier": "com.isector.farangisbridge",
       "supportsTablet": false,
