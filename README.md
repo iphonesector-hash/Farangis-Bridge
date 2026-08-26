@@ -1,52 +1,56 @@
 # Farangis Bridge
 
-Farangis Bridge is a personal iPhone bridge built with Expo/React Native. The current prototype runs in Expo Go and exposes device capabilities to a local command router.
+Farangis Bridge is an iPhone-first personal assistant bridge built with Expo/React Native.
 
-## Working now in Expo Go
+## Current version
 
-- Contacts permission and contact count
-- List contacts with saved birthdays
-- Find a contact by name and show phone/email/birthday
-- Photo/video library count
-- Foreground location
-- Camera permission
-- Microphone permission
-- Clipboard reading
-- Secure Store test
-- Persian text command box
-- Local Tool Router for common Persian commands
-- Google search/open URL action
-- Persian text-to-speech responses with an on/off toggle
+1.2.0
+
+## Works in the current Expo Go prototype
+
+- Contacts access and birthday listing
+- Contact search with phone/email/birthday
+- Open the Phone dialer for a contact
+- Open the Messages composer for a contact
+- Photo/video library count and recent-media inspection
+- Current location and open current location in Apple Maps
+- Apple Maps search
+- Clipboard read/write
+- Camera and microphone permission tests
+- SecureStore read/write helpers
+- Persian text-to-speech responses
+- Google search and URL opening
+- Native Share sheet
+- Calendar event creation UI
+- Local notification reminders
+- Persian/English local command router
 
 ## Example commands
 
 - `چه کسایی تاریخ تولد دارن؟`
 - `چندتا مخاطب دارم؟`
 - `شماره مستانه`
-- `لوکیشن فعلیم رو بگو`
+- `زنگ بزن به مستانه`
+- `پیام بده به مستانه`
+- `لوکیشن فعلیم رو روی نقشه باز کن`
+- `نقشه برج میلاد`
 - `کلیپ بورد رو بخون`
+- `کپی کن سلام دنیا`
 - `چندتا عکس و ویدیو دارم؟`
+- `یادآوری 10 دقیقه دیگه آب بخورم`
+- `تقویم جلسه با علی`
 - `ستاره های سربی آبی رو تو گوگل سرچ کن`
+- `ذخیره امن کد: 1234`
+- `حافظه امن کد`
 
 ## Current architecture
 
 `User command -> local intent router -> device tool -> result -> optional Persian speech`
 
-The local router is intentional: it lets the bridge work without putting an AI API key in a public client app.
+The local router intentionally works without placing an AI API secret in the public client app.
 
-## Next native phase
+## Important iOS / Expo Go limits
 
-Some iOS capabilities cannot be implemented fully inside Expo Go. The next Development Build / Native Bridge phase should add:
+Expo Go is a prototype environment. It does not provide unrestricted access to iMessage/SMS history, system call history, or a permanent third-party wake word. True custom speech recognition, App Intents, deeper background execution, and a dedicated `Hey Farangis` native experience require a development/native build and remain subject to iOS permissions and platform restrictions.
 
-- Speech-to-text / conversational voice input
-- App Intents and Shortcuts
-- Vocal Shortcut / wake phrase integration such as “Hey Farangis”
-- Calendar and Reminders native access
-- Background-capable native services where iOS permits them
-- Share Sheet extension
-- Notifications
-- A secure backend AI agent and tool-calling API
-
-## Security rule
-
-Never hard-code AI, Google, GitHub, Supabase, or other private API secrets in this repository or the mobile bundle. Secrets should live on a backend and the app should authenticate to that backend.
+Sensitive destructive actions should always require explicit confirmation in a future native agent layer.
