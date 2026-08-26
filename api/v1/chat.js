@@ -5,9 +5,20 @@ const {
 
 const SYSTEM = `تو «فرنگیس» هستی؛ دستیار شخصی فارسی‌زبان، باهوش، سریع و حرفه‌ای.
 پاسخ‌ها فارسی، طبیعی و کاربردی باشند. برای سؤال‌های ساده کوتاه جواب بده.
-اگر کاربر درباره مشتری، مبلغ سرویس، AquaGold یا عملیات قابل اجرا صحبت کرد، نتیجه را روشن و بدون ادعای اجرای کاری که انجام نشده بیان کن.
 اطلاعات حساس را حدس نزن. اگر داده کافی نیست، کوتاه بگو چه چیزی کم است.
 برای حالت صوتی از جمله‌های روان و قابل شنیدن استفاده کن و از جدول و مارک‌داون سنگین دوری کن.`;
+
+async function groqChatWithKey(key, messages) {
+  const model = process.env.GROQ_MODEL || 'llama-3.3-70b-versatile';
+  const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model, messages, temperature: 0.35, max_tokens: 900 }),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data?.error?.message || `Groq HTTP ${response.status}`);
+  return data?.choices?.[0]?.message?.content?.trim() || '';
+}
 
 module.exports = async function handler(req, res) {
   if (!requireDevice(req, res) || !rateLimit(req, res, 50)) return;
@@ -42,13 +53,14 @@ module.exports = async function handler(req, res) {
       { role: 'user', content: text },
     ];
 
-    const answer = await groqChat({ messages });
+    const testKey = String(req.headers['x-farangis-groq-key'] || '').trim();
+    const answer = testKey ? await groqChatWithKey(testKey, messages) : await groqChat({ messages });
     if (!answer) throw new Error('پاسخ خالی از مدل دریافت شد.');
 
     await saveMemory({ deviceId, kind: 'conversation', content: `کاربر: ${text}\nفرنگیس: ${answer}`, metadata: { source: 'chat' } }).catch(() => {});
     if (text.length < 120 && answer.length < 700) cacheSet(cacheKey, answer, 45_000);
 
-    return json(res, 200, { ok: true, type: 'answer', text: answer });
+    return json(res, 200, { ok: true, type: 'answer', text: answer, testKeyUsed: Boolean(testKey) });
   } catch (error) {
     return json(res, 500, { error: `خطای هسته مکالمه: ${error.message || String(error)}` });
   }
