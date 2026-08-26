@@ -1,4 +1,6 @@
 import * as SecureStore from 'expo-secure-store';
+import * as Notifications from 'expo-notifications';
+import { Linking } from 'react-native';
 
 const KEY_BASE_URL = 'farangis_core_url';
 const KEY_DEVICE_TOKEN = 'farangis_device_token';
@@ -44,6 +46,25 @@ async function coreFetch(path, options = {}) {
   return data;
 }
 
+async function runClientAction(result) {
+  if (!result?.clientAction) return result;
+  if (result.tool === 'maps.search') {
+    await Linking.openURL(`https://maps.apple.com/?q=${encodeURIComponent(result.args?.query || '')}`);
+    return { clientAction: false, message: 'نقشه باز شد.' };
+  }
+  if (result.tool === 'reminder.create') {
+    const permission = await Notifications.requestPermissionsAsync();
+    if (permission.status !== 'granted') return { clientAction: false, message: 'دسترسی اعلان‌ها داده نشده.' };
+    const minutes = Math.max(1, Number(result.args?.minutes || 1));
+    await Notifications.scheduleNotificationAsync({
+      content: { title: 'فرنگیس', body: result.args?.raw || 'یادآوری', sound: true },
+      trigger: { seconds: minutes * 60 },
+    });
+    return { clientAction: false, message: `یادآوری برای ${minutes.toLocaleString('fa-IR')} دقیقه دیگر ثبت شد.` };
+  }
+  return result;
+}
+
 export async function healthCheck() {
   return coreFetch('/api/v1/health', { method: 'GET', headers: { 'Content-Type': 'application/json' } });
 }
@@ -56,10 +77,12 @@ export async function sendChat({ text, context = [], mode = 'assistant' }) {
 }
 
 export async function submitAction(action) {
-  return coreFetch('/api/v1/actions', {
+  const response = await coreFetch('/api/v1/actions', {
     method: 'POST',
     body: JSON.stringify(action),
   });
+  if (response?.result?.clientAction) response.result = await runClientAction(response.result);
+  return response;
 }
 
 export async function transcribeViaCore({ uri }) {
