@@ -4,66 +4,63 @@ Farangis Bridge is an iPhone-first personal assistant bridge built with Expo/Rea
 
 ## Current version
 
-1.3.0
+1.5.0
 
 ## What works now
 
-- Contacts access and birthday listing
-- Contact search with phone/email/birthday
-- Open the Phone dialer for a contact
-- Open the Messages composer for a contact
+- Natural Persian AI Router with persistent local conversation memory
+- Live device context such as iPhone model and iOS version
+- Live Internet Agent using Groq Compound web search for current prices, weather, news and other fresh public information
+- Contacts access, birthday listing, contact search, phone dialer and Messages composer
 - Photo/video library count and recent-media inspection
 - Current location and Apple Maps actions
 - Clipboard read/write
+- Files document picker
+- Read selected text files locally (up to the current safety/size limit)
+- Search text inside the currently selected file
+- Open/share the selected file through the iOS share sheet
+- Known-app launcher through supported URL schemes
+- Shortcuts URL bridge for running user-created Apple Shortcuts
+- Open Apple Notes when its URL scheme is available
 - Camera and microphone permission tests
-- SecureStore read/write helpers
-- Persian text-to-speech responses
+- SecureStore memory/settings
+- Persian text-to-speech
 - Google search and URL opening
-- Native Share sheet
 - Calendar event creation UI
 - Local notification reminders
-- Fast local Persian command router
-- AI fallback router for natural/unregistered commands
-- OpenAI-compatible AI provider settings stored only in iPhone Secure Store
 
-## AI Router
+## Internet Agent
 
-The app first tries the local router for common commands. If the sentence is not recognized, it can ask an AI model to choose one of the device tools.
+Questions that need live information are routed to `groq/compound`, which can use Groq's built-in web search/website tools. Example:
 
-AI credentials are **not** stored in this public repository. Enter the API key once inside the `AI Router` section of the app. The key is stored with `expo-secure-store` on the device.
+- `قیمت دلار امروز چنده؟`
+- `آخرین خبرهای اپل چیه؟`
+- `هوا امروز چطوره؟`
 
-Default provider settings are compatible with Groq:
+The Groq API key is stored only in iPhone Secure Store and is not committed to this repository.
 
-- URL: `https://api.groq.com/openai/v1/chat/completions`
-- Model: `llama-3.3-70b-versatile`
+## Files
 
-Any OpenAI-compatible Chat Completions endpoint can be used by changing URL/model in the app.
+iOS does not let third-party apps silently crawl the entire Files/iCloud Drive tree. Farangis therefore opens Apple's system document picker. After the user selects a file, Farangis can read/search supported text content and open/share that selected file.
 
-The AI receives the user's command for intent planning. Device data such as contacts and current location are fetched by the selected tool on the phone rather than being embedded in the prompt.
+## Apps and Notes
+
+iOS does not expose a public API containing the full list of installed apps. Farangis can still open known applications that expose URL schemes.
+
+Apple Notes does not provide a public API for arbitrary full-database search by a third-party app. Farangis can open Notes and includes a bridge to Apple Shortcuts so richer Notes workflows can be added through user-created shortcuts.
 
 ## Example commands
 
+- `قیمت دلار امروز چنده؟`
+- `فایل‌هام رو باز کن`
+- `فایل انتخاب‌شده رو بخون`
+- `داخل فایل انتخاب‌شده محمد رو پیدا کن`
+- `برنامه تلگرام رو باز کن`
+- `شورتکات My Shortcut رو اجرا کن`
 - `چه کسایی تاریخ تولد دارن؟`
 - `شماره مستانه رو پیدا کن`
-- `زنگ بزن به مستانه`
-- `پیام بده به مستانه`
 - `لوکیشن فعلیم رو روی نقشه باز کن`
-- `نقشه برج میلاد`
-- `کلیپ بورد رو بخون`
-- `کپی کن سلام دنیا`
-- `چندتا عکس و ویدیو دارم؟`
-- `یادآوری 10 دقیقه دیگه آب بخورم`
-- `تقویم جلسه با علی`
-- `ستاره های سربی آبی رو تو گوگل سرچ کن`
 
-With AI Router enabled, colloquial variations of these commands no longer need to match a hard-coded phrase.
+## Important iOS limits
 
-## Architecture
-
-`User command -> fast local router -> AI intent planner (fallback) -> device tool -> result -> optional Persian speech`
-
-## Important iOS / Expo Go limits
-
-Expo Go does not provide unrestricted access to iMessage/SMS history, system call history, or a permanent third-party wake word. A true custom `Hey Farangis` wake experience, App Intents, custom speech-recognition integration, and deeper background execution require a Development/Native Build and remain subject to Apple's platform restrictions.
-
-Destructive or irreversible actions should always require explicit confirmation.
+Even a native iOS build cannot obtain unrestricted access to everything on the phone. In particular, Apple does not expose unrestricted APIs for the complete installed-app list, arbitrary Apple Notes database access, iMessage/SMS history, system call history, or a permanent third-party wake word. Native/App Intents/Shortcuts integrations can expand the bridge substantially while still respecting those platform boundaries.
