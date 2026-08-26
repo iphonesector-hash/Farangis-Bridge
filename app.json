@@ -2,7 +2,7 @@
   "expo": {
     "name": "Farangis Bridge",
     "slug": "farangis-bridge",
-    "version": "1.5.0",
+    "version": "1.6.0",
     "orientation": "portrait",
     "userInterfaceStyle": "dark",
     "ios": {
@@ -11,7 +11,7 @@
         "NSContactsUsageDescription": "Farangis uses contacts only for commands you request.",
         "NSPhotoLibraryUsageDescription": "Farangis uses your photo library only for commands you request.",
         "NSCameraUsageDescription": "Farangis uses the camera only when you request a camera action.",
-        "NSMicrophoneUsageDescription": "Farangis uses the microphone only when you request a voice action.",
+        "NSMicrophoneUsageDescription": "Farangis records your voice only when you tap the voice button to issue a command.",
         "NSLocationWhenInUseUsageDescription": "Farangis uses your location only for location-based commands you request.",
         "NSCalendarsUsageDescription": "Farangis opens or creates calendar items only when you request it.",
         "NSRemindersUsageDescription": "Farangis uses reminders only when you request it."
