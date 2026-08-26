@@ -1,7 +1,7 @@
 {
   "name": "farangis-bridge",
   "version": "2.0.0",
-  "main": "node_modules/expo/AppEntry.js",
+  "main": "index.js",
   "scripts": {
     "start": "expo start --tunnel --go",
     "start:lan": "expo start --lan --go",
