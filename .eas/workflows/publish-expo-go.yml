@@ -6,9 +6,54 @@ on:
 
 jobs:
   publish_update:
-    name: Publish Expo Go preview
-    type: update
-    params:
-      branch: main
-      platform: ios
-      message: 'Farangis iOS preview from GitHub main'
+    name: Patch TTS and publish Expo Go preview
+    steps:
+      - uses: eas/checkout
+      - uses: eas/install_node_modules
+      - name: Patch Persian female TTS safely
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('App.js')
+          s = p.read_text(encoding='utf-8')
+          old = '''  const say = async (text) => {
+    const output = String(text ?? '');
+    setResult(output);
+    if (!speakAnswers) return;
+    try {
+      await Speech.stop();
+      Speech.speak(output.replace(/\\n/g, ' '), { language: 'fa-IR', rate: 0.92 });
+    } catch (_) {}
+  };'''
+          new = '''  const say = async (text) => {
+    const output = String(text ?? '');
+    setResult(output);
+    if (!speakAnswers) return;
+    try {
+      await Speech.stop();
+      await Audio.setAudioModeAsync({ allowsRecordingIOS: false, playsInSilentModeIOS: true });
+      const voices = await Speech.getAvailableVoicesAsync().catch(() => []);
+      const persianVoices = (voices || []).filter((v) => /^fa(?:-|_)/i.test(String(v.language || '')));
+      const preferredFemaleNames = ['neda', 'roya', 'shadi', 'sara', 'farah', 'farnaz'];
+      const femaleVoice = persianVoices.find((v) => {
+        const label = `${v.name || ''} ${v.identifier || ''}`.toLowerCase();
+        return preferredFemaleNames.some((name) => label.includes(name));
+      });
+      const selectedVoice = femaleVoice || persianVoices[0] || null;
+      Speech.speak(output.replace(/\\n/g, ' '), {
+        language: selectedVoice?.language || 'fa-IR',
+        voice: selectedVoice?.identifier,
+        rate: 0.9,
+        pitch: 1.04,
+        onError: (error) => setResult(`${output}\\n\\n⚠️ خطای پخش صدا: ${String(error)}`),
+      });
+    } catch (error) {
+      setResult(`${output}\\n\\n⚠️ خطای آماده‌سازی صدا: ${String(error)}`);
+    }
+  };'''
+          if old not in s:
+              raise SystemExit('Expected say() block not found; refusing unsafe patch')
+          p.write_text(s.replace(old, new, 1), encoding='utf-8')
+          PY
+      - name: Publish iOS update
+        run: npx eas-cli@latest update --branch main --platform ios --message "Farangis female Persian TTS fix" --non-interactive
