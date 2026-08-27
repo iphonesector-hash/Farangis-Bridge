@@ -2,29 +2,12 @@
 <html lang="fa" dir="rtl">
 <head>
 <meta charset="utf-8" />
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
-<title>Farangis Core</title>
-<style>
-:root{color-scheme:dark;--bg:#060816;--card:#0e1328;--card2:#151b35;--text:#f8faff;--muted:#8e98b7;--p:#7c6cff;--c:#42c8ff;--ok:#41d6a3;--warn:#ffcc66;--bad:#ff5d7a;--line:rgba(255,255,255,.08)}*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 10% 0%,#182153 0,transparent 35%),radial-gradient(circle at 90% 10%,#0b3653 0,transparent 30%),var(--bg);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Tahoma,sans-serif;color:var(--text);min-height:100vh}.wrap{max-width:1000px;margin:auto;padding:38px 18px 70px}.brand{text-align:center;margin-bottom:28px}.logo{width:104px;height:104px;border-radius:52px;margin:auto;display:grid;place-items:center;background:linear-gradient(145deg,#171d3d,#0a0e21);border:1px solid rgba(255,255,255,.15);box-shadow:0 20px 60px rgba(66,200,255,.15);position:relative}.logo:before{content:"";position:absolute;inset:-8px;border:3px solid var(--p);border-top-color:var(--c);border-right-color:transparent;border-radius:60px;animation:spin 3s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}.logo b{font-size:42px;letter-spacing:2px}.brand h1{letter-spacing:8px;font-size:25px;margin:24px 0 4px}.brand p{color:var(--muted);margin:0;font-size:13px}.credit{font-size:7px!important;letter-spacing:3px;margin-top:5px!important;color:#5f698a!important}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:13px}.card{background:rgba(14,19,40,.92);border:1px solid var(--line);border-radius:22px;padding:18px;backdrop-filter:blur(20px);box-shadow:0 15px 45px rgba(0,0,0,.2)}.card h3{margin:0 0 14px;font-size:14px}.value{font-weight:900;font-size:28px}.muted{color:var(--muted);font-size:12px}.status{display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--line)}.status:last-child{border:0}.pill{font-size:9px;font-weight:900;padding:5px 8px;border-radius:999px;background:#162036}.ok{color:var(--ok)}.warn{color:var(--warn)}.bad{color:var(--bad)}button{appearance:none;border:0;background:linear-gradient(135deg,var(--p),#6556e8);color:#fff;border-radius:14px;padding:12px 17px;font-weight:900;cursor:pointer}button.secondary{background:#202844}.toolbar{display:flex;gap:10px;margin:18px 0;flex-wrap:wrap}.section-title{font-size:16px;margin:28px 0 12px}.list{display:grid;gap:9px}.item{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:13px}.item b{font-size:12px;color:var(--c)}.item p{margin:6px 0 0;color:#dce3f8;white-space:pre-wrap;line-height:1.7;font-size:12px}.error{background:#32121d;color:#ffc7d2;border:1px solid #5a2231;border-radius:14px;padding:12px;margin-top:12px;display:none}@media(max-width:600px){.wrap{padding-top:24px}.brand h1{font-size:21px}.logo{width:88px;height:88px}.logo b{font-size:35px}}
-</style>
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<meta http-equiv="refresh" content="0; url=/aria-dashboard.html" />
+<title>ARIA Core</title>
+<script>location.replace('/aria-dashboard.html');</script>
 </head>
-<body>
-<div class="wrap">
-  <div class="brand"><div class="logo"><b>F</b></div><h1>FARANGIS</h1><p>کنسول سلامت و حافظه فرنگیس</p><p class="credit">MADE BY SECTOR TEAM</p></div>
-  <div class="toolbar"><button onclick="refreshAll()">تازه‌سازی</button><button class="secondary" onclick="clearView()">پاک کردن نما</button></div>
-  <div class="grid">
-    <div class="card"><h3>وضعیت هسته</h3><div id="coreValue" class="value">—</div><div id="coreMeta" class="muted">در انتظار بررسی</div></div>
-    <div class="card"><h3>Voice</h3><div id="voiceValue" class="value">—</div><div class="muted">Groq STT + ElevenLabs TTS</div></div>
-    <div class="card"><h3>Memory</h3><div id="memoryValue" class="value">—</div><div class="muted">Supabase-backed memory</div></div>
-  </div>
-  <h2 class="section-title">سرویس‌ها</h2><div class="card" id="services"></div>
-  <h2 class="section-title">فعالیت‌های اخیر</h2><div class="list" id="activity"><div class="item"><p>هنوز داده‌ای بارگذاری نشده.</p></div></div>
-  <div id="error" class="error"></div>
-</div>
-<script>
-const token=localStorage.getItem('farangis_device_token')||'';const deviceId=localStorage.getItem('farangis_device_id')||('dashboard-'+Date.now());localStorage.setItem('farangis_device_id',deviceId);const headers={'x-farangis-device-id':deviceId,...(token?{'x-farangis-device-token':token}:{})};
-const el=id=>document.getElementById(id);function showError(e){el('error').style.display='block';el('error').textContent=String(e)}function clearView(){el('activity').innerHTML='';el('error').style.display='none'}
-async function api(path){const r=await fetch(path,{headers});const t=await r.text();let d={};try{d=JSON.parse(t)}catch{d={error:t}}if(!r.ok)throw new Error(d.error||('HTTP '+r.status));return d}
-async function refreshAll(){el('error').style.display='none';try{const h=await api('/api/v1/health');el('coreValue').textContent=h.ok?'ONLINE':'ERROR';el('coreValue').className='value '+(h.ok?'ok':'bad');el('coreMeta').textContent='v'+(h.version||'?')+' • '+new Date(h.timestamp).toLocaleString('fa-IR');el('voiceValue').textContent=h.voiceReady?'READY':'SETUP';el('voiceValue').className='value '+(h.voiceReady?'ok':'warn');el('memoryValue').textContent=h.memoryReady?'READY':'SETUP';el('memoryValue').className='value '+(h.memoryReady?'ok':'warn');el('services').innerHTML=Object.entries(h.checks||{}).map(([k,v])=>`<div class="status"><span>${k}</span><span class="pill ${v?'ok':'warn'}">${v?'ONLINE':'NEEDS CONFIG'}</span></div>`).join('');}catch(e){showError(e)}try{const a=await api('/api/v1/activity');el('activity').innerHTML=(a.items||[]).map(x=>`<div class="item"><b>${x.action}</b><p>${new Date(x.created_at).toLocaleString('fa-IR')} • ${x.status}</p></div>`).join('')||'<div class="item"><p>فعالیتی ثبت نشده.</p></div>'}catch(e){showError(e)}}refreshAll();
-</script>
-</body></html>
+<body style="background:#050711;color:#fff;font-family:Tahoma,sans-serif;text-align:center;padding:40px">
+در حال انتقال به پنل آریا…
+</body>
+</html>
