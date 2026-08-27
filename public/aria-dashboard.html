@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+<title>ARIA Core</title>
+<style>
+:root{color-scheme:dark;--bg:#050711;--card:#0d1327;--card2:#141b35;--text:#f8faff;--muted:#919bb8;--p:#7c6cff;--c:#45d0ff;--ok:#45d6a6;--warn:#ffcf70;--bad:#ff6782;--line:rgba(255,255,255,.09)}*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 10% 0%,#17245a 0,transparent 35%),radial-gradient(circle at 90% 10%,#0a3b59 0,transparent 30%),var(--bg);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Tahoma,sans-serif;color:var(--text);min-height:100vh}.wrap{max-width:1040px;margin:auto;padding:34px 18px 70px}.brand{text-align:center;margin-bottom:28px}.logo{width:104px;height:104px;border-radius:52px;margin:auto;display:grid;place-items:center;background:linear-gradient(145deg,#171d3d,#0a0e21);border:1px solid rgba(255,255,255,.15);box-shadow:0 20px 60px rgba(69,208,255,.16);position:relative}.logo:before{content:"";position:absolute;inset:-8px;border:3px solid var(--p);border-top-color:var(--c);border-right-color:transparent;border-radius:60px;animation:spin 3s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}.logo b{font-size:40px;letter-spacing:2px}.brand h1{letter-spacing:9px;font-size:27px;margin:24px 0 4px}.brand p{color:var(--muted);margin:0;font-size:13px}.credit{font-size:8px!important;letter-spacing:3px;margin-top:6px!important;color:#5f698a!important}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:13px}.card{background:rgba(13,19,39,.94);border:1px solid var(--line);border-radius:22px;padding:18px;backdrop-filter:blur(20px);box-shadow:0 15px 45px rgba(0,0,0,.22)}.card h3{margin:0 0 14px;font-size:14px}.value{font-weight:900;font-size:28px}.muted{color:var(--muted);font-size:12px;line-height:1.8}.status{display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--line)}.status:last-child{border:0}.pill{font-size:9px;font-weight:900;padding:5px 8px;border-radius:999px;background:#162036}.ok{color:var(--ok)}.warn{color:var(--warn)}.bad{color:var(--bad)}button,a.btn{appearance:none;border:0;text-decoration:none;background:linear-gradient(135deg,var(--p),#6556e8);color:#fff;border-radius:14px;padding:12px 17px;font-weight:900;cursor:pointer;display:inline-flex;align-items:center;justify-content:center}button.secondary,a.secondary{background:#202844}.toolbar{display:flex;gap:10px;margin:18px 0;flex-wrap:wrap}.section-title{font-size:16px;margin:28px 0 12px}.error,.success{border-radius:14px;padding:12px;margin-top:12px;display:none;font-size:12px;line-height:1.8}.error{background:#32121d;color:#ffc7d2;border:1px solid #5a2231}.success{background:#0c2b24;color:#a7f4d7;border:1px solid #1c5b4a}.form{display:grid;gap:12px}.row{display:grid;grid-template-columns:1fr 1fr;gap:12px}label{font-size:12px;color:#cbd4ed;display:grid;gap:7px}input,textarea,select{width:100%;background:#0a1021;border:1px solid var(--line);border-radius:13px;color:#fff;padding:12px;font:inherit;outline:none}textarea{min-height:92px;resize:vertical}input:focus,textarea:focus,select:focus{border-color:rgba(69,208,255,.55)}.hint{font-size:11px;color:var(--muted);line-height:1.7}.audioBox{margin-top:14px;display:none}audio{width:100%}.notice{padding:12px;border:1px dashed rgba(255,255,255,.16);border-radius:14px;background:rgba(255,255,255,.025);font-size:11px;color:#c7d1eb;line-height:1.9}@media(max-width:650px){.wrap{padding-top:24px}.brand h1{font-size:22px}.logo{width:88px;height:88px}.logo b{font-size:34px}.row{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="brand"><div class="logo"><b>A</b></div><h1>ARIA</h1><p>کنسول مدیریت و تست آریا</p><p class="credit">MADE BY SECTOR TEAM</p></div>
+
+  <div class="toolbar">
+    <button onclick="refreshAll()">تازه‌سازی وضعیت</button>
+    <a class="btn secondary" href="https://vercel.com/i-sector/farangis-core-v2/settings/environment-variables" target="_blank" rel="noopener">Environment Variables ورسل</a>
+  </div>
+
+  <div class="grid">
+    <div class="card"><h3>وضعیت هسته</h3><div id="coreValue" class="value">—</div><div id="coreMeta" class="muted">در انتظار بررسی</div></div>
+    <div class="card"><h3>صدای آریا</h3><div id="voiceValue" class="value">—</div><div class="muted">Groq STT + ElevenLabs TTS</div></div>
+    <div class="card"><h3>حافظه</h3><div id="memoryValue" class="value">—</div><div class="muted">Supabase-backed memory</div></div>
+  </div>
+
+  <h2 class="section-title">تست ElevenLabs</h2>
+  <div class="card">
+    <div class="notice">کلید API که اینجا وارد می‌کنی فقط برای همین تست به سرور آریا فرستاده می‌شود و در مرورگر، ریپو یا دیتابیس ذخیره نمی‌شود. برای استفاده دائمی آریا، بعد از موفق شدن تست همان کلید را با نام <b>ELEVENLABS_API_KEY</b> در Environment Variables ورسل ذخیره کن.</div>
+    <div class="form" style="margin-top:14px">
+      <label>ElevenLabs API Key
+        <input id="apiKey" type="password" autocomplete="off" placeholder="sk_..." />
+      </label>
+      <div class="row">
+        <label>Voice ID
+          <input id="voiceId" value="21m00Tcm4TlvDq8ikWAM" placeholder="Voice ID" />
+        </label>
+        <label>Model
+          <select id="modelId"><option value="eleven_multilingual_v2">Multilingual v2</option><option value="eleven_flash_v2_5">Flash v2.5</option></select>
+        </label>
+      </div>
+      <label>متن تست
+        <textarea id="testText">سلام پیمان، من آریا هستم. صدای من با موفقیت فعال شد.</textarea>
+      </label>
+      <div class="toolbar" style="margin:0"><button onclick="testVoice()">تست صدای آریا</button><button class="secondary" onclick="clearKey()">پاک کردن کلید از فیلد</button></div>
+    </div>
+    <div id="voiceSuccess" class="success"></div><div id="voiceError" class="error"></div>
+    <div id="audioBox" class="audioBox"><audio id="player" controls></audio></div>
+  </div>
+
+  <h2 class="section-title">سرویس‌ها</h2><div class="card" id="services"></div>
+  <div id="error" class="error"></div>
+</div>
+<script>
+const token=localStorage.getItem('farangis_device_token')||'';
+const deviceId=localStorage.getItem('farangis_device_id')||('aria-dashboard-'+Date.now());
+localStorage.setItem('farangis_device_id',deviceId);
+const headers={'x-farangis-device-id':deviceId,...(token?{'x-farangis-device-token':token}:{})};
+const el=id=>document.getElementById(id);
+function showError(e){el('error').style.display='block';el('error').textContent=String(e)}
+async function api(path){const r=await fetch(path,{headers});const t=await r.text();let d={};try{d=JSON.parse(t)}catch{d={error:t}}if(!r.ok)throw new Error(d.error||('HTTP '+r.status));return d}
+async function refreshAll(){el('error').style.display='none';try{const h=await api('/api/v1/health');el('coreValue').textContent=h.ok?'ONLINE':'ERROR';el('coreValue').className='value '+(h.ok?'ok':'bad');el('coreMeta').textContent='v'+(h.version||'?')+' • '+new Date(h.timestamp).toLocaleString('fa-IR');el('voiceValue').textContent=h.voiceReady?'READY':'SETUP';el('voiceValue').className='value '+(h.voiceReady?'ok':'warn');el('memoryValue').textContent=h.memoryReady?'READY':'SETUP';el('memoryValue').className='value '+(h.memoryReady?'ok':'warn');el('services').innerHTML=Object.entries(h.checks||{}).map(([k,v])=>`<div class="status"><span>${k}</span><span class="pill ${v?'ok':'warn'}">${v?'ONLINE':'NEEDS CONFIG'}</span></div>`).join('');}catch(e){showError(e)}}
+function clearKey(){el('apiKey').value=''}
+async function testVoice(){
+  el('voiceError').style.display='none';el('voiceSuccess').style.display='none';el('audioBox').style.display='none';
+  const apiKey=el('apiKey').value.trim();if(!apiKey){el('voiceError').textContent='اول API Key را وارد کن.';el('voiceError').style.display='block';return}
+  try{
+    const r=await fetch('/api/v1/voice/tts-test',{method:'POST',headers:{...headers,'Content-Type':'application/json'},body:JSON.stringify({apiKey,voiceId:el('voiceId').value.trim(),modelId:el('modelId').value,text:el('testText').value})});
+    if(!r.ok){let msg='HTTP '+r.status;try{const d=await r.json();msg=d.error||msg}catch{}throw new Error(msg)}
+    const blob=await r.blob();const url=URL.createObjectURL(blob);el('player').src=url;el('audioBox').style.display='block';el('voiceSuccess').textContent='تست موفق بود. صدای آریا آماده است.';el('voiceSuccess').style.display='block';await el('player').play().catch(()=>{});
+  }catch(e){el('voiceError').textContent=String(e.message||e);el('voiceError').style.display='block'}
+}
+refreshAll();
+</script>
+</body></html>
