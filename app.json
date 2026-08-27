@@ -1,9 +1,9 @@
 {
   "expo": {
-    "name": "Farangis",
+    "name": "Aria",
     "slug": "frngys",
     "owner": "isector",
-    "version": "2.0.0",
+    "version": "2.1.0",
     "orientation": "portrait",
     "userInterfaceStyle": "dark",
     "scheme": "farangis",
@@ -20,13 +20,13 @@
       },
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
-        "NSContactsUsageDescription": "Farangis uses contacts only for commands you request.",
-        "NSPhotoLibraryUsageDescription": "Farangis uses your photo library only for commands you request.",
-        "NSCameraUsageDescription": "Farangis uses the camera only when you request a camera action.",
-        "NSMicrophoneUsageDescription": "Farangis records your voice only when you start a voice command.",
-        "NSLocationWhenInUseUsageDescription": "Farangis uses your location only for location-based commands you request.",
-        "NSCalendarsUsageDescription": "Farangis opens or creates calendar items only when you request it.",
-        "NSRemindersUsageDescription": "Farangis uses reminders only when you request it."
+        "NSContactsUsageDescription": "Aria uses contacts only for commands you request.",
+        "NSPhotoLibraryUsageDescription": "Aria uses your photo library only for commands you request.",
+        "NSCameraUsageDescription": "Aria uses the camera only when you request a camera action.",
+        "NSMicrophoneUsageDescription": "Aria records your voice only when you start a voice command.",
+        "NSLocationWhenInUseUsageDescription": "Aria uses your location only for location-based commands you request.",
+        "NSCalendarsUsageDescription": "Aria opens or creates calendar items only when you request it.",
+        "NSRemindersUsageDescription": "Aria uses reminders only when you request it."
       }
     }
   }
