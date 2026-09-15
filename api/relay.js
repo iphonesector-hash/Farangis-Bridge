@@ -1,18 +1,18 @@
 const crypto = require('node:crypto');
 
-const FARANGIS_BASE_URL = String(
-  process.env.FARANGIS_BASE_URL || 'https://farangis-core-v2-i-sector.vercel.app'
-).replace(/\/$/, '');
+const DEFAULT_RUNTIME_URL = 'https://sector-assistant-git-feat-farangis-runtime-20260916-i-sector.vercel.app/api/farangis-runtime';
+const RUNTIME_URL = String(process.env.FARANGIS_RUNTIME_URL || DEFAULT_RUNTIME_URL);
+const BRIDGE_BASE_URL = String(process.env.FARANGIS_BASE_URL || '').replace(/\/$/, '');
+const MODE = BRIDGE_BASE_URL ? 'bridge' : 'runtime';
 const CLIENT_ID = String(process.env.RELAY_CLIENT_ID || 'grok-salon-v1');
-const BYPASS = String(
-  process.env.VERCEL_AUTOMATION_BYPASS_SECRET || process.env.FARANGIS_PROTECTION_BYPASS || ''
-);
+const RUNTIME_CLIENT = String(process.env.FARANGIS_RUNTIME_CLIENT || 'farangis-relay-v1');
+const BYPASS = String(process.env.VERCEL_AUTOMATION_BYPASS_SECRET || process.env.FARANGIS_PROTECTION_BYPASS || '');
 const DEVICE_TOKEN = String(process.env.FARANGIS_DEVICE_TOKEN || '');
 const TIMEOUT_MS = Math.max(3000, Math.min(Number(process.env.RELAY_TIMEOUT_MS || 20000), 30000));
 const MAX_TEXT = Math.max(200, Math.min(Number(process.env.RELAY_MAX_TEXT_LENGTH || 2400), 8000));
 const MAX_CONTEXT = Math.max(0, Math.min(Number(process.env.RELAY_MAX_CONTEXT || 8), 20));
-const MINUTE_LIMIT = Math.max(1, Math.min(Number(process.env.RELAY_MINUTE_LIMIT || 30), 300));
-const DAILY_LIMIT = Math.max(10, Math.min(Number(process.env.RELAY_DAILY_LIMIT || 300), 10000));
+const MINUTE_LIMIT = Math.max(1, Math.min(Number(process.env.RELAY_MINUTE_LIMIT || 12), 120));
+const DAILY_LIMIT = Math.max(10, Math.min(Number(process.env.RELAY_DAILY_LIMIT || 120), 2000));
 
 const counters = globalThis.__farangisRelayCounters || new Map();
 globalThis.__farangisRelayCounters = counters;
@@ -28,8 +28,7 @@ function ipOf(req) {
 
 function rateLimit(req, res) {
   const ip = ipOf(req);
-  const minute = Math.floor(Date.now() / 60000);
-  const minuteKey = `m:${minute}:${ip}`;
+  const minuteKey = `m:${Math.floor(Date.now() / 60000)}:${ip}`;
   const minuteCount = (counters.get(minuteKey) || 0) + 1;
   counters.set(minuteKey, minuteCount);
   if (minuteCount > MINUTE_LIMIT) {
@@ -67,21 +66,37 @@ function cleanId(value) {
 function contextOf(value) {
   if (!Array.isArray(value)) return [];
   return value.slice(-MAX_CONTEXT).map((entry) => {
-    const role = entry?.role === 'assistant' ? 'assistant' : 'user';
-    const content = String(entry?.content || '').trim().slice(0, MAX_TEXT);
-    return content ? { role, content } : null;
+    if (!entry || (entry.role !== 'assistant' && entry.role !== 'user')) return null;
+    const content = String(entry.content || '').replace(/\s+/g, ' ').trim().slice(0, MAX_TEXT);
+    return content ? { role: entry.role, content } : null;
   }).filter(Boolean);
 }
 
-function upstreamHeaders(conversationId) {
-  const headers = {
-    'content-type': 'application/json',
-    'x-farangis-device-id': `grok-salon:${cleanId(conversationId)}`,
-    'user-agent': 'farangis-grok-relay/0.3',
+function target() {
+  if (MODE === 'bridge') {
+    return {
+      url: `${BRIDGE_BASE_URL}/api/v1/chat`,
+      headers: (conversationId) => {
+        const headers = {
+          'content-type': 'application/json',
+          'x-farangis-device-id': `grok-salon:${cleanId(conversationId)}`,
+          'user-agent': 'farangis-grok-relay/0.4'
+        };
+        if (BYPASS) headers['x-vercel-protection-bypass'] = BYPASS;
+        if (DEVICE_TOKEN) headers['x-farangis-device-token'] = DEVICE_TOKEN;
+        return headers;
+      }
+    };
+  }
+
+  return {
+    url: RUNTIME_URL,
+    headers: () => ({
+      'content-type': 'application/json',
+      'x-farangis-runtime-client': RUNTIME_CLIENT,
+      'user-agent': 'farangis-grok-relay/0.4'
+    })
   };
-  if (BYPASS) headers['x-vercel-protection-bypass'] = BYPASS;
-  if (DEVICE_TOKEN) headers['x-farangis-device-token'] = DEVICE_TOKEN;
-  return headers;
 }
 
 async function upstream(url, options, retry = true) {
@@ -105,6 +120,16 @@ async function parseUpstream(response) {
   catch { return { error: text.slice(0, 300) || 'Invalid upstream response.' }; }
 }
 
+async function callFarangis({ text, context = [], conversationId = 'grok-room', retry = true }) {
+  const destination = target();
+  const response = await upstream(destination.url, {
+    method: 'POST',
+    headers: destination.headers(conversationId),
+    body: JSON.stringify({ text, context, conversationId })
+  }, retry);
+  return { response, data: await parseUpstream(response) };
+}
+
 module.exports = async function handler(req, res) {
   if (req.method === 'OPTIONS') return res.status(204).end();
 
@@ -113,33 +138,38 @@ module.exports = async function handler(req, res) {
       return send(res, 200, {
         ok: true,
         service: 'farangis-grok-relay',
-        version: '0.3.0',
+        version: '0.4.0',
         config: {
+          mode: MODE,
+          runtime: MODE === 'runtime' ? RUNTIME_URL : undefined,
+          bridge: MODE === 'bridge' ? BRIDGE_BASE_URL : undefined,
           bypassConfigured: Boolean(BYPASS),
-          deviceTokenConfigured: Boolean(DEVICE_TOKEN),
-          upstream: FARANGIS_BASE_URL,
-        },
+          deviceTokenConfigured: Boolean(DEVICE_TOKEN)
+        }
       });
     }
 
     if (!requireClient(req, res) || !rateLimit(req, res)) return;
     const started = Date.now();
     try {
-      const response = await upstream(`${FARANGIS_BASE_URL}/api/v1/health`, {
-        method: 'GET',
-        headers: upstreamHeaders('health'),
-      }, false);
-      const data = await parseUpstream(response);
-      console.log(JSON.stringify({ event: 'relay_probe', status: response.status, latencyMs: Date.now() - started }));
+      const { response, data } = await callFarangis({
+        text: 'برای تست اتصال فقط کوتاه بگو: فرنگیس آنلاین است.',
+        conversationId: 'relay-probe',
+        retry: false
+      });
+      console.log(JSON.stringify({ event: 'relay_probe', mode: MODE, status: response.status, latencyMs: Date.now() - started }));
       return send(res, response.ok ? 200 : 502, {
         ok: response.ok,
+        mode: MODE,
         upstreamStatus: response.status,
-        farangis: response.ok ? data : undefined,
-        error: response.ok ? undefined : (data?.error || `Farangis health failed with ${response.status}`),
+        provider: data?.provider,
+        model: data?.model,
+        text: response.ok ? String(data?.text || '') : undefined,
+        error: response.ok ? undefined : (data?.error || `Farangis returned ${response.status}`)
       });
     } catch (error) {
-      console.error(JSON.stringify({ event: 'relay_probe_error', error: error.name || 'Error', latencyMs: Date.now() - started }));
-      return send(res, 502, { ok: false, error: error.name === 'AbortError' ? 'Farangis health timed out.' : 'Farangis health unavailable.' });
+      console.error(JSON.stringify({ event: 'relay_probe_error', mode: MODE, error: error.name || 'Error', latencyMs: Date.now() - started }));
+      return send(res, 502, { ok: false, mode: MODE, error: error.name === 'AbortError' ? 'Farangis probe timed out.' : 'Farangis probe unavailable.' });
     }
   }
 
@@ -150,26 +180,26 @@ module.exports = async function handler(req, res) {
   const started = Date.now();
   try {
     const body = req.body && typeof req.body === 'object' ? req.body : {};
-    const text = String(body.text || '').trim();
+    const text = String(body.text || '').replace(/\s+/g, ' ').trim();
     if (!text) return send(res, 400, { ok: false, error: 'text is required.' });
     if (text.length > MAX_TEXT) return send(res, 413, { ok: false, error: `text exceeds ${MAX_TEXT} characters.` });
 
     const conversationId = cleanId(body.conversationId || body.conversation_id);
-    const response = await upstream(`${FARANGIS_BASE_URL}/api/v1/chat`, {
-      method: 'POST',
-      headers: upstreamHeaders(conversationId),
-      body: JSON.stringify({ text, context: contextOf(body.context) }),
+    const { response, data } = await callFarangis({
+      text,
+      context: contextOf(body.context),
+      conversationId
     });
-    const data = await parseUpstream(response);
 
-    console.log(JSON.stringify({ event: 'relay_chat', requestId, conversationId, upstreamStatus: response.status, latencyMs: Date.now() - started }));
+    console.log(JSON.stringify({ event: 'relay_chat', requestId, conversationId, mode: MODE, upstreamStatus: response.status, latencyMs: Date.now() - started }));
 
     if (!response.ok) {
       return send(res, 502, {
         ok: false,
         requestId,
+        mode: MODE,
         upstreamStatus: response.status,
-        error: data?.error || `Farangis returned ${response.status}`,
+        error: data?.error || `Farangis returned ${response.status}`
       });
     }
 
@@ -177,14 +207,15 @@ module.exports = async function handler(req, res) {
       ok: true,
       requestId,
       conversationId,
+      mode: MODE,
       type: data?.type || 'answer',
       text: String(data?.text || ''),
-      action: data?.action,
-      cached: Boolean(data?.cached),
-      latencyMs: Date.now() - started,
+      provider: data?.provider,
+      model: data?.model,
+      latencyMs: Date.now() - started
     });
   } catch (error) {
-    console.error(JSON.stringify({ event: 'relay_error', requestId, error: error.name || 'Error', latencyMs: Date.now() - started }));
-    return send(res, 502, { ok: false, requestId, error: error.name === 'AbortError' ? 'Farangis request timed out.' : 'Relay upstream unavailable.' });
+    console.error(JSON.stringify({ event: 'relay_error', requestId, mode: MODE, error: error.name || 'Error', latencyMs: Date.now() - started }));
+    return send(res, 502, { ok: false, requestId, mode: MODE, error: error.name === 'AbortError' ? 'Farangis request timed out.' : 'Relay upstream unavailable.' });
   }
 };
