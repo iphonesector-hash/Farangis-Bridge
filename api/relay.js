@@ -48,9 +48,12 @@ function rateLimit(req, res) {
   return true;
 }
 
+function suppliedClient(req) {
+  return String(req.headers['x-relay-client'] || req.query?.client || '');
+}
+
 function requireClient(req, res) {
-  const supplied = String(req.headers['x-relay-client'] || '');
-  if (supplied !== CLIENT_ID) {
+  if (suppliedClient(req) !== CLIENT_ID) {
     send(res, 403, { ok: false, error: 'Relay client not allowed.' });
     return false;
   }
@@ -74,7 +77,7 @@ function upstreamHeaders(conversationId) {
   const headers = {
     'content-type': 'application/json',
     'x-farangis-device-id': `grok-salon:${cleanId(conversationId)}`,
-    'user-agent': 'farangis-grok-relay/0.2',
+    'user-agent': 'farangis-grok-relay/0.3',
   };
   if (BYPASS) headers['x-vercel-protection-bypass'] = BYPASS;
   if (DEVICE_TOKEN) headers['x-farangis-device-token'] = DEVICE_TOKEN;
@@ -106,12 +109,11 @@ module.exports = async function handler(req, res) {
   if (req.method === 'OPTIONS') return res.status(204).end();
 
   if (req.method === 'GET') {
-    if (!requireClient(req, res) || !rateLimit(req, res)) return;
     if (String(req.query?.probe || '') !== 'farangis') {
       return send(res, 200, {
         ok: true,
         service: 'farangis-grok-relay',
-        version: '0.2.0',
+        version: '0.3.0',
         config: {
           bypassConfigured: Boolean(BYPASS),
           deviceTokenConfigured: Boolean(DEVICE_TOKEN),
@@ -120,6 +122,7 @@ module.exports = async function handler(req, res) {
       });
     }
 
+    if (!requireClient(req, res) || !rateLimit(req, res)) return;
     const started = Date.now();
     try {
       const response = await upstream(`${FARANGIS_BASE_URL}/api/v1/health`, {
