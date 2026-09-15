@@ -1,0 +1,13 @@
+{
+  "name": "farangis-grok-relay",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Server-side relay between Grok App Builder and Farangis Bridge",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
