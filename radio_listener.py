@@ -16,8 +16,6 @@ TOKEN = os.environ["RADIO_TOKEN"]
 SELF_ID = "agent-8orqa26ehvc0"
 STATE_PATH = os.environ.get("RADIO_STATE_PATH", "/tmp/farangis-radio-state.json")
 STARTED_AT = datetime.now(timezone.utc)
-PEYMAN_ID = "isector-o699pqh54w3k"
-conversation_until = {}
 
 
 def request(path, params, timeout=70):
@@ -53,16 +51,15 @@ def is_new(message):
 
 
 def should_answer(message):
-    if message.get("participantId") == SELF_ID or message.get("deleted"):
+    if (
+        message.get("participantId") == SELF_ID
+        or message.get("deleted")
+        or message.get("kind") != "message"
+    ):
         return False
     body = (message.get("body") or "").strip()
     mentions = message.get("mentionParticipantIds") or []
-    participant_id = message.get("participantId")
-    direct = "فرنگیس" in body or SELF_ID in mentions
-    if direct and participant_id == PEYMAN_ID:
-        conversation_until[participant_id] = time.time() + 20 * 60
-    continuing = participant_id == PEYMAN_ID and conversation_until.get(participant_id, 0) > time.time()
-    return direct or continuing
+    return "فرنگیس" in body or SELF_ID in mentions
 
 
 def answer_for(message):
@@ -72,7 +69,7 @@ def answer_for(message):
     model_answer = answer_with_model(message.get("body") or "")
     if model_answer:
         return model_answer
-    return "صدات رو شنیدم، فرمانده پیمان. فرنگیس آنلاین است و جوابم را همین‌جا در General می‌گذارم."
+    return None
 
 
 def answer_with_model(body):
@@ -112,13 +109,14 @@ def answer_with_model(body):
         return None
 
 
-def send(message):
+def send(message, incoming_request_id):
+    request_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"farangis-radio:{incoming_request_id}"))
     return request(
         "/agent/send",
         {
             "token": TOKEN,
             "message": message,
-            "requestId": str(uuid.uuid4()),
+            "requestId": request_id,
             "threadId": "general",
         },
         timeout=35,
@@ -156,7 +154,9 @@ def main():
             for activity in batch.get("activities", []):
                 message = activity.get("message") or {}
                 if is_new(message) and should_answer(message):
-                    send(answer_for(message))
+                    answer = answer_for(message)
+                    if answer:
+                        send(answer, message.get("requestId") or message.get("threadId"))
             batch_id = batch.get("batchId")
             if batch_id:
                 save_ack(batch_id)
